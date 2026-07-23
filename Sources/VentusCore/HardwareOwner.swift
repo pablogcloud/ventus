@@ -56,9 +56,15 @@ public final class HardwareOwner: @unchecked Sendable {
     public enum Result: Sendable, Equatable {
         case ok
         case refusedLatched
+        /// No controllable fans exist on this Mac (e.g. MacBook Air). Control
+        /// commands are a no-op; this is a normal state, not a failure.
+        case noHardware
         case failed(String)
         case timedOut
     }
+
+    /// True when this Mac has at least one controllable fan.
+    public var hasControllableFans: Bool { effectiveFanCount() > 0 }
 
     private let hw: FanHardware
     private let logger: (String) -> Void
@@ -118,6 +124,10 @@ public final class HardwareOwner: @unchecked Sendable {
         switch command {
         case .apply(let targets):
             if latchedNow { return .refusedLatched }
+            // Defense in depth: an owner over a fanless Mac (Air) can NEVER force a
+            // fan, even if a caller mistakenly submits control. Fanless is the
+            // normal state, not an error to defend against downstream.
+            guard effectiveFanCount() > 0 else { return .noHardware }
             var failures: [Int] = []
             for t in targets where !hw.force(t.fan, rpm: t.rpm) {
                 failures.append(t.fan)
@@ -126,8 +136,9 @@ public final class HardwareOwner: @unchecked Sendable {
 
         case .forceMaxAll:
             if latchedNow { return .refusedLatched }
+            guard effectiveFanCount() > 0 else { return .noHardware }
             let count = effectiveFanCount()
-            let fanRange = count > 0 ? 0 ..< count : 0 ..< 8
+            let fanRange = 0 ..< count
             var failures: [Int] = []
             for f in fanRange {
                 let maxRPM = hw.fanMax(f) ?? 6800

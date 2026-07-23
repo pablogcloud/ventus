@@ -159,6 +159,17 @@ final class HardwareOwnerTests: XCTestCase {
         XCTAssertEqual(hw.mode[1], 1)
     }
 
+    func testFanlessMac_ApplyAndForceMaxAreNoHardware_NeverWrite() {
+        // MacBook Air: no fans. Control commands must return .noHardware and
+        // physically force nothing — the app is monitor-only there.
+        let hw = FakeFanHardware(count: 0)
+        let owner = HardwareOwner(hardware: hw)
+        XCTAssertFalse(owner.hasControllableFans)
+        XCTAssertEqual(owner.submit(.apply([.init(fan: 0, rpm: 3000)]), deadline: 1), .noHardware)
+        XCTAssertEqual(owner.submit(.forceMaxAll, deadline: 1), .noHardware)
+        XCTAssertTrue(hw.forceCalls.isEmpty, "a fanless Mac must never receive a force write")
+    }
+
     func testSubmit_TimesOutWhenHardwareWedged_WithoutTouchingHardware() {
         // Finding #1 core: a wedged write must return .timedOut to the caller so
         // it can exit — the caller must NOT be able to deadlock waiting.

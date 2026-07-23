@@ -25,7 +25,7 @@ struct TelemetrySnapshot: Codable, Sendable {
         let winner: String
     }
 
-    let mode: String  // "observe" or "armed"
+    let mode: String  // "observe", "armed", or "monitor" (fanless Mac)
     let activeProfile: String
     let activeRule: String?
     let timestamp: Date
@@ -35,6 +35,9 @@ struct TelemetrySnapshot: Codable, Sendable {
     let packageWatts: Double?
     let explanations: [Explanation]
     let version: String
+    /// False on fanless Macs (e.g. MacBook Air): the app is monitor-only there.
+    /// Optional so older clients that omit it default to true (fan-equipped).
+    var fanControlAvailable: Bool? = true
 }
 
 // MARK: - Global Logger
@@ -64,6 +67,10 @@ final class DaemonState {
     let startTime: Date
     /// Exclusive hardware owner — the ONLY path to SMC control writes.
     let hardwareOwner: HardwareOwner?
+    /// Whether this Mac has controllable fans. False on fanless Macs (Air):
+    /// the daemon then runs pure monitor mode — never arms, never writes SMC.
+    /// Determined once at startup; sticky-true (any positive fan read wins).
+    let fanControlAvailable: Bool
 
     /// FIX #5: published immutable telemetry. The control loop stores a fully
     /// formed snapshot here under `snapshotLock`; readers (getStatusXPC) copy it
@@ -85,14 +92,26 @@ final class DaemonState {
         self.cpuWatchdog = SelfCPUWatchdog(logger: logMessage)
         self.startTime = Date()
         self.hardwareOwner = smc.map { HardwareOwner(hardware: $0, logger: logMessage) }
+
+        // Detect fan presence once at startup. Sticky-true across a few reads so a
+        // transiently-zero FNum on a fan-equipped Mac doesn't mislabel it fanless.
+        // A false negative is safe (monitor-only never writes); a false positive
+        // would need FNum to read high on an Air, which it does not.
+        var detectedFans = 0
+        if let smc = smc {
+            for _ in 0 ..< 3 { detectedFans = max(detectedFans, smc.listFanCount()) }
+        }
+        self.fanControlAvailable = detectedFans > 0
+
         self.publishedSnapshot = TelemetrySnapshot(
-            mode: config.armed ? "armed" : "observe",
+            mode: fanControlAvailable ? (config.armed ? "armed" : "observe") : "monitor",
             activeProfile: config.pinnedProfile ?? "balanced",
             activeRule: nil, timestamp: Date(), uptime: 0,
-            sensors: [], fans: [], packageWatts: nil, explanations: [], version: "1.0.0"
+            sensors: [], fans: [], packageWatts: nil, explanations: [], version: "1.0.0",
+            fanControlAvailable: fanControlAvailable
         )
 
-        logMessage("[DaemonState] Initialized (armed: \(config.armed))")
+        logMessage("[DaemonState] Initialized (fanControlAvailable: \(fanControlAvailable), fans: \(detectedFans), armed: \(config.armed))")
     }
 
     /// FIX #5: store a fully-formed snapshot (called only from the control loop).
@@ -112,12 +131,13 @@ final class DaemonState {
             TelemetrySnapshot.Explanation(fan: $0.fan, targetRPM: $0.targetRPM, winner: $0.winner)
         }
         let snap = TelemetrySnapshot(
-            mode: armed ? "armed" : "observe",
+            mode: fanControlAvailable ? (armed ? "armed" : "observe") : "monitor",
             activeProfile: config.pinnedProfile ?? "balanced",
             activeRule: activeRule, timestamp: Date(),
             uptime: Date().timeIntervalSince(startTime),
             sensors: sensorInfos, fans: fanInfos,
-            packageWatts: power?.totalW, explanations: exps, version: "1.0.0"
+            packageWatts: power?.totalW, explanations: exps, version: "1.0.0",
+            fanControlAvailable: fanControlAvailable
         )
         snapshotLock.withLock { publishedSnapshot = snap }
     }
@@ -213,23 +233,27 @@ class DaemonController {
         // Register signal handlers
         setupSignalHandlers()
 
-        // Unconditionally restore auto on startup. If verification keeps
-        // failing, observe-mode ticks continue retrying until it succeeds.
-        logMessage("[Daemon] Performing startup restoreAuto (idempotent, safe when SMC unavailable)")
-        var startupRestoreSucceeded = false
-        for attempt in 1 ... 3 {
-            if state.restoreAuto() {
-                startupRestoreSucceeded = true
-                break
+        // Startup restore only applies to Macs with fans. On a fanless Mac (Air)
+        // there is nothing to restore and no SMC control surface at all.
+        if state.fanControlAvailable {
+            logMessage("[Daemon] Performing startup restoreAuto (idempotent, safe when SMC unavailable)")
+            var startupRestoreSucceeded = false
+            for attempt in 1 ... 3 {
+                if state.restoreAuto() {
+                    startupRestoreSucceeded = true
+                    break
+                }
+                logMessage("[Daemon] Startup restore attempt \(attempt)/3 failed")
+                if attempt < 3 {
+                    Thread.sleep(forTimeInterval: 0.2)
+                }
             }
-            logMessage("[Daemon] Startup restore attempt \(attempt)/3 failed")
-            if attempt < 3 {
-                Thread.sleep(forTimeInterval: 0.2)
+            if !startupRestoreSucceeded {
+                logMessage("[Daemon] CRITICAL: startup restore failed")
+                pendingRestore = true
             }
-        }
-        if !startupRestoreSucceeded {
-            logMessage("[Daemon] CRITICAL: startup restore failed")
-            pendingRestore = true
+        } else {
+            logMessage("[Daemon] Monitor-only mode: this Mac has no controllable fans")
         }
 
         // Start the control loop
@@ -366,9 +390,9 @@ class DaemonController {
         // may legitimately end at 0 RPM, which would alias with "no emergency").
         let decision = state.supervisor.thermalDecision(sensors: sensors, thermalState: thermalState)
 
-        // All control writes go through the hardware owner (single serialized
-        // path, deadline-bounded, refuses everything once emergency-latched).
-        if state.armed, let owner = state.hardwareOwner {
+        // Control writes only on Macs with fans. A fanless Mac (Air) is monitor
+        // only: it publishes telemetry below but NEVER issues a control command.
+        if state.fanControlAvailable, state.armed, let owner = state.hardwareOwner {
             let command: HardwareOwner.Command
             switch decision {
             case .forceMax:
@@ -383,7 +407,7 @@ class DaemonController {
             }
             let result = owner.submit(command, deadline: 1.0)
             switch result {
-            case .ok, .refusedLatched:
+            case .ok, .refusedLatched, .noHardware:
                 break
             case .failed(let why):
                 logMessage("[ControlLoop] hardware command failed: \(why)")
@@ -519,6 +543,9 @@ class DaemonController {
 
     func armXPC() -> XPCResult {
         serialQueue.sync {
+            guard state.fanControlAvailable else {
+                return .error("This Mac has no controllable fans — Ventus is monitor-only here.")
+            }
             guard state.hardwareOwner?.isLatched != true else {
                 return .error("Cannot arm: daemon is in emergency-stop state (restart required)")
             }

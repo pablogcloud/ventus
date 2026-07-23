@@ -1,0 +1,5 @@
+module CVentusPrivate {
+    header "CVentusPrivate.h"
+    link "IOKit"
+    export *
+}

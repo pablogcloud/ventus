@@ -298,3 +298,13 @@ public final class SMCClient: @unchecked Sendable {
         setFanMode(fan, mode: 0)
     }
 }
+
+// MARK: - FanHardware conformance
+
+extension SMCClient: FanHardware {
+    public func fanCount() -> Int { listFanCount() }
+    public func fanMax(_ fan: Int) -> Double? { readFanMax(fan).map(Double.init) }
+    public func readMode(_ fan: Int) -> UInt8? { readFanMode(fan) }
+    public func force(_ fan: Int, rpm: Double) -> Bool { forceFan(fan, rpm: Float(rpm)) }
+    public func toAuto(_ fan: Int) -> Bool { setFanMode(fan, mode: 0) }
+}

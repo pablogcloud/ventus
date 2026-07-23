@@ -62,70 +62,69 @@ final class DaemonState {
     let heartbeatWatchdog: ControlLoopWatchdog
     let cpuWatchdog: SelfCPUWatchdog
     let startTime: Date
-    var lastExplanations: [CurveEngine.Explanation] = []
-    var lastSensorSnapshot: [SensorGroup: GroupReading] = [:]
-    var lastPowerReading: PowerReader.PowerReading?
-    var lastFanActuals: [Int: Double] = [:]
-    var lastActiveRule: String?
+    /// Exclusive hardware owner — the ONLY path to SMC control writes.
+    let hardwareOwner: HardwareOwner?
+
+    /// FIX #5: published immutable telemetry. The control loop stores a fully
+    /// formed snapshot here under `snapshotLock`; readers (getStatusXPC) copy it
+    /// out. No live mutable collection is ever touched from two queues.
+    private let snapshotLock = NSLock()
+    private var publishedSnapshot: TelemetrySnapshot
 
     init(config: Config) throws {
         self.config = config
         self.armed = config.armed
         self.sensorReader = SensorReader(logger: logMessage)
         self.powerReader = PowerReader(logger: logMessage)
-        self.smcClient = SMCClient(logger: logMessage)
+        let smc = SMCClient(logger: logMessage)
+        self.smcClient = smc
         self.curveEngine = CurveEngine(logger: logMessage)
         self.ruleEngine = RuleEngine(logger: logMessage)
         self.supervisor = SafetySupervisor(armed: config.armed, logger: logMessage)
         self.heartbeatWatchdog = ControlLoopWatchdog(stallThresholdS: 10, logger: logMessage)
         self.cpuWatchdog = SelfCPUWatchdog(logger: logMessage)
         self.startTime = Date()
+        self.hardwareOwner = smc.map { HardwareOwner(hardware: $0, logger: logMessage) }
+        self.publishedSnapshot = TelemetrySnapshot(
+            mode: config.armed ? "armed" : "observe",
+            activeProfile: config.pinnedProfile ?? "balanced",
+            activeRule: nil, timestamp: Date(), uptime: 0,
+            sensors: [], fans: [], packageWatts: nil, explanations: [], version: "1.0.0"
+        )
 
         logMessage("[DaemonState] Initialized (armed: \(config.armed))")
     }
 
-    func getSnapshot() -> TelemetrySnapshot {
-        let mode = armed ? "armed" : "observe"
-        let activeProfile = config.pinnedProfile ?? "balanced"
-
-        var sensorInfos: [TelemetrySnapshot.SensorInfo] = []
-        for (group, reading) in lastSensorSnapshot {
-            sensorInfos.append(TelemetrySnapshot.SensorInfo(
-                groupName: group.rawValue,
-                maxTemp: reading.max,
-                meanTemp: reading.mean,
-                count: reading.count
-            ))
+    /// FIX #5: store a fully-formed snapshot (called only from the control loop).
+    func publish(sensors: [SensorGroup: GroupReading],
+                 power: PowerReader.PowerReading?,
+                 fanActuals: [Int: Double],
+                 explanations: [CurveEngine.Explanation],
+                 activeRule: String?) {
+        let sensorInfos = sensors.map {
+            TelemetrySnapshot.SensorInfo(groupName: $0.key.rawValue, maxTemp: $0.value.max,
+                                         meanTemp: $0.value.mean, count: $0.value.count)
         }
-
-        var fanInfos: [TelemetrySnapshot.FanInfo] = []
-        for explanation in lastExplanations {
-            fanInfos.append(TelemetrySnapshot.FanInfo(
-                fanIndex: explanation.fan,
-                actualRPM: lastFanActuals[explanation.fan] ?? 0,
-                targetRPM: explanation.targetRPM
-            ))
+        let fanInfos = explanations.map {
+            TelemetrySnapshot.FanInfo(fanIndex: $0.fan, actualRPM: fanActuals[$0.fan] ?? 0, targetRPM: $0.targetRPM)
         }
-
-        let explanations = lastExplanations.map { exp in
-            TelemetrySnapshot.Explanation(fan: exp.fan, targetRPM: exp.targetRPM, winner: exp.winner)
+        let exps = explanations.map {
+            TelemetrySnapshot.Explanation(fan: $0.fan, targetRPM: $0.targetRPM, winner: $0.winner)
         }
-
-        let uptime = Date().timeIntervalSince(startTime)
-        let version = "1.0.0"
-
-        return TelemetrySnapshot(
-            mode: mode,
-            activeProfile: activeProfile,
-            activeRule: lastActiveRule,
-            timestamp: Date(),
-            uptime: uptime,
-            sensors: sensorInfos,
-            fans: fanInfos,
-            packageWatts: lastPowerReading?.totalW,
-            explanations: explanations,
-            version: version
+        let snap = TelemetrySnapshot(
+            mode: armed ? "armed" : "observe",
+            activeProfile: config.pinnedProfile ?? "balanced",
+            activeRule: activeRule, timestamp: Date(),
+            uptime: Date().timeIntervalSince(startTime),
+            sensors: sensorInfos, fans: fanInfos,
+            packageWatts: power?.totalW, explanations: exps, version: "1.0.0"
         )
+        snapshotLock.withLock { publishedSnapshot = snap }
+    }
+
+    /// FIX #5: readers get an immutable copy; they never touch live loop state.
+    func getSnapshot() -> TelemetrySnapshot {
+        snapshotLock.withLock { publishedSnapshot }
     }
 
     func setArmed(_ newArmed: Bool) {
@@ -134,16 +133,29 @@ final class DaemonState {
         supervisor.setArmed(newArmed)
     }
 
-    func restoreAuto() {
-        guard let smc = smcClient else {
+    /// Verified release to Apple auto via the owner (no latch). Returns success.
+    @discardableResult
+    func restoreAuto(deadline: TimeInterval = 3) -> Bool {
+        guard let owner = hardwareOwner else {
             logMessage("[DaemonState] restoreAuto: SMC unavailable, cannot restore")
-            return
+            return false
         }
-        let fanCount = smc.listFanCount()
-        for i in 0 ..< fanCount {
-            smc.setFanMode(i, mode: 0)  // 0 = auto
+        let result = owner.submit(.restore, deadline: deadline)
+        if result != .ok { logMessage("[DaemonState] restoreAuto result: \(result)") }
+        return result == .ok
+    }
+
+    /// Latching emergency restore via the owner. After this, all normal control
+    /// is refused until the process restarts. Returns success.
+    @discardableResult
+    func emergencyRestore(deadline: TimeInterval = 2) -> Bool {
+        guard let owner = hardwareOwner else {
+            logMessage("[DaemonState] emergencyRestore: SMC unavailable")
+            return false
         }
-        logMessage("[DaemonState] Restored all fans to auto mode")
+        let result = owner.submit(.emergencyRestore, deadline: deadline)
+        logMessage("[DaemonState] emergencyRestore result: \(result)")
+        return result == .ok
     }
 }
 
@@ -168,24 +180,10 @@ class DaemonController {
     // must not block SIGTERM cleanup.
     private let signalQueue = DispatchQueue(label: "com.formm.ventus.signals")
 
-    // Hardware ownership: `hardwareLock` guards every SMC control-write region so
-    // the control loop, watchdog, and signal handler can never interleave writes.
-    // `emergencyStop` (guarded by the same lock) latches true when watchdog/signal
-    // restores auto; once set, the control loop performs NO further writes. This
-    // closes the "watchdog restores → loop re-forces → watchdog exits" race
-    // without the watchdog ever blocking on the (possibly stalled) control queue.
-    private let hardwareLock = NSLock()
-    private var emergencyStop = false
-
-    /// Latches emergency stop and restores all fans to auto under the hardware lock.
-    /// Safe to call from any queue; idempotent.
-    private func emergencyRestore(reason: String) {
-        hardwareLock.lock()
-        emergencyStop = true
-        logMessage("[EmergencyRestore] \(reason) — restoring all fans to auto")
-        state.restoreAuto()
-        hardwareLock.unlock()
-    }
+    // Hardware ownership now lives entirely in state.hardwareOwner: it holds the
+    // emergency latch and serializes all SMC writes on its own queue, so the
+    // control loop, watchdog, and signal handler coordinate through submit() with
+    // a deadline and never share a lock held across blocking I/O.
 
     init(dryRun: Bool = false) throws {
         self.dryRun = dryRun
@@ -300,9 +298,7 @@ class DaemonController {
             logMessage("[ControlLoop] SENSOR FAILURE: critical groups (cpuPerf/gpu/soc) all absent")
             if state.armed {
                 logMessage("[ControlLoop] Armed mode detected during sensor failure — restoring auto and entering observe")
-                hardwareLock.lock()
                 state.restoreAuto()
-                hardwareLock.unlock()
                 state.setArmed(false)
                 saveConfig(state.config)
             }
@@ -337,50 +333,41 @@ class DaemonController {
             packageWatts: power?.totalW
         )
 
-        // Apply safety supervisor check
-        let safetyRPM = state.supervisor.getSafetyOverrideRPM(
-            maxRPM: (profile.curves.first?.value.points.last?.rpm ?? 6000),
-            sensors: sensors,
-            thermalState: thermalState
-        )
+        // FIX #4: explicit thermal decision, NOT an RPM>0 sentinel (a valid curve
+        // may legitimately end at 0 RPM, which would alias with "no emergency").
+        let decision = state.supervisor.thermalDecision(sensors: sensors, thermalState: thermalState)
 
-        // All hardware writes happen under hardwareLock so the watchdog/signal
-        // handler cannot interleave. If emergencyStop latched, write nothing.
-        hardwareLock.lock()
-        if !emergencyStop && state.armed {
-            if safetyRPM > 0 {
-                // Thermal override wins unconditionally (even for curve-less
-                // profiles): force EVERY fan to its own hardware max. This is
-                // checked BEFORE the auto-apple release so an emergency is never
-                // cancelled by a curve-less active profile.
-                for i in 0 ..< fanCount {
-                    let hardwareMax = state.smcClient?.readFanMax(i) ?? 6800
-                    state.smcClient?.forceFan(i, rpm: Float(hardwareMax))
-                }
-            } else if profile.curves.isEmpty {
-                // auto-apple (no curves) and no emergency: release fans to macOS.
-                logMessage("[ControlLoop] Active profile '\(activeProfile)' has no curves — restoring fans to auto")
-                state.restoreAuto()
-            } else {
-                // Normal operation: forceFan sets target then forces mode ONLY if
-                // the target write succeeded (never forces at a stale target).
-                for explanation in explanations {
-                    state.smcClient?.forceFan(explanation.fan, rpm: Float(explanation.targetRPM))
+        // All control writes go through the hardware owner (single serialized
+        // path, deadline-bounded, refuses everything once emergency-latched).
+        if state.armed, let owner = state.hardwareOwner {
+            let command: HardwareOwner.Command
+            switch decision {
+            case .forceMax:
+                // Emergency wins unconditionally, even for a curve-less profile.
+                command = .forceMaxAll
+            case .normal:
+                if profile.curves.isEmpty {
+                    command = .restore   // auto-apple: release to macOS
+                } else {
+                    command = .apply(explanations.map { .init(fan: $0.fan, rpm: $0.targetRPM) })
                 }
             }
+            let result = owner.submit(command, deadline: 1.0)
+            switch result {
+            case .ok, .refusedLatched:
+                break
+            case .failed(let why):
+                logMessage("[ControlLoop] hardware command failed: \(why)")
+            case .timedOut:
+                logMessage("[ControlLoop] hardware command timed out (owner busy)")
+            }
         }
-        hardwareLock.unlock()
 
-        // Update state snapshot
-        state.lastSensorSnapshot = sensors
-        state.lastPowerReading = power
-        state.lastFanActuals = fanActuals
-        state.lastExplanations = explanations
-        state.lastActiveRule = nil
+        // FIX #5: publish an immutable snapshot; readers never touch live state.
+        state.publish(sensors: sensors, power: power, fanActuals: fanActuals,
+                      explanations: explanations, activeRule: nil)
 
-        // Determine next tick interval from engine
-        let nextTickS = state.curveEngine.suggestedTickS
-        return nextTickS
+        return state.curveEngine.suggestedTickS
     }
 
     // MARK: - Watchdog Thread
@@ -399,17 +386,22 @@ class DaemonController {
 
             let now = Date()
 
-            // Check control loop heartbeat
+            // Check control loop heartbeat. emergencyRestore is deadline-bounded
+            // via the owner; whether or not it verifies in time, we ALWAYS exit —
+            // death drops our forced-mode claim and launchd restarts us into the
+            // startup restore. That die-and-restart is the always-available backstop.
             if state.heartbeatWatchdog.isStalled(now: now) {
                 let stallTime = state.heartbeatWatchdog.secondsSinceHeartbeat(now: now)
-                emergencyRestore(reason: "Control loop stalled \(String(format: "%.1f", stallTime))s")
+                logMessage("[Watchdog] Control loop stalled \(String(format: "%.1f", stallTime))s — emergency restore + exit")
+                state.emergencyRestore()
                 exit(1)
             }
 
             // Check self-CPU usage
             if state.cpuWatchdog.isHighCPU(now: now) {
                 let cpuPercent = state.cpuWatchdog.measureCPUPercent(now: now)
-                emergencyRestore(reason: "Self-CPU high (\(String(format: "%.1f", cpuPercent * 100))%)")
+                logMessage("[Watchdog] Self-CPU high (\(String(format: "%.1f", cpuPercent * 100))%) — emergency restore + exit")
+                state.emergencyRestore()
                 exit(1)
             }
         }
@@ -439,7 +431,8 @@ class DaemonController {
 
     private func handleSignal() {
         shouldKeepRunning = false
-        emergencyRestore(reason: "Caught SIGTERM/SIGINT")
+        logMessage("[Signal] Caught SIGTERM/SIGINT — emergency restore + exit")
+        state.emergencyRestore()
         exit(0)
     }
 
@@ -498,8 +491,8 @@ class DaemonController {
 
     func armXPC() -> XPCResult {
         serialQueue.sync {
-            guard !emergencyStop else {
-                return .error("Cannot arm: daemon is in emergency-stop state")
+            guard state.hardwareOwner?.isLatched != true else {
+                return .error("Cannot arm: daemon is in emergency-stop state (restart required)")
             }
             state.setArmed(true)
             saveConfig(state.config)
@@ -510,27 +503,30 @@ class DaemonController {
 
     func disarmXPC() -> XPCResult {
         serialQueue.sync {
-            // Clear armed FIRST, then restore hardware under the lock — so no
-            // control tick can re-force between the restore and the state change.
+            // Clear armed FIRST so no tick issues new control, then verify-restore
+            // through the owner and return the REAL result (finding #3).
             state.setArmed(false)
-            hardwareLock.lock()
-            state.restoreAuto()
-            hardwareLock.unlock()
+            let ok = state.restoreAuto()
             saveConfig(state.config)
-            logMessage("[XPC] Disarmed; fans restored to auto")
-            return .ok()
+            if ok {
+                logMessage("[XPC] Disarmed; fans verified back to auto")
+                return .ok()
+            }
+            logMessage("[XPC] Disarm: fan restore did NOT verify")
+            return .error("Disarmed, but fans could not be verified back to auto — check daemon log")
         }
     }
 
     func setAppleAutoXPC() -> XPCResult {
         serialQueue.sync {
             state.setArmed(false)
-            hardwareLock.lock()
-            state.restoreAuto()
-            hardwareLock.unlock()
+            let ok = state.restoreAuto()
             saveConfig(state.config)
-            logMessage("[XPC] Fans restored to Apple auto")
-            return .ok()
+            if ok {
+                logMessage("[XPC] Fans verified back to Apple auto")
+                return .ok()
+            }
+            return .error("Could not verify fans back to Apple auto — check daemon log")
         }
     }
 
@@ -605,13 +601,9 @@ class DaemonController {
             packageWatts: power?.totalW
         )
 
-        // Update state snapshot (no SMC writes in dry-run)
-        state.lastSensorSnapshot = sensors
-        state.lastPowerReading = power
-        state.lastFanActuals = fanActuals
-        state.lastExplanations = explanations
-        state.lastActiveRule = nil
-
+        // Publish snapshot (dry-run performs NO SMC writes).
+        state.publish(sensors: sensors, power: power, fanActuals: fanActuals,
+                      explanations: explanations, activeRule: nil)
         return state.getSnapshot()
     }
 }

@@ -85,6 +85,20 @@ public final class SafetySupervisor: Sendable {
         }
     }
 
+    /// Explicit thermal decision. Callers MUST branch on this, never on
+    /// "RPM > 0" — a valid fan curve may legitimately end at 0 RPM, which would
+    /// alias with "no emergency" and silently disable the override.
+    public enum ThermalDecision: Equatable, Sendable {
+        case normal
+        case forceMax
+    }
+
+    /// Evaluates thermal state into an explicit decision (no sentinel value).
+    public func thermalDecision(sensors: [SensorGroup: GroupReading], thermalState: ThermalState) -> ThermalDecision {
+        updateThermalOverride(sensors: sensors, thermalState: thermalState)
+        return lock.withLock { thermalOverride ? .forceMax : .normal }
+    }
+
     /// Records CPU usage (from getrusage). Detects sustained high CPU usage.
     /// FIX #9: Thread-safe CPU reading recording
     public func updateCPUUsage(rusageSecs: Double, now: Date) {

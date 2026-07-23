@@ -139,6 +139,10 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusCore/HardwareOwner.swift"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/pablo/Projects/ventus/Sources/VentusCore/PowerReader.swift"
         },
         {
@@ -176,6 +180,7 @@
       "objects" : [
         "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/Config.swift.o",
         "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/CurveEngine.swift.o",
+        "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/HardwareOwner.swift.o",
         "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/PowerReader.swift.o",
         "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/RuleEngine.swift.o",
         "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/SMCClient.swift.o",
@@ -246,6 +251,10 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/HardwareOwner.swift.o"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/PowerReader.swift.o"
         },
         {
@@ -273,6 +282,7 @@
       "sources" : [
         "/Users/pablo/Projects/ventus/Sources/VentusCore/Config.swift",
         "/Users/pablo/Projects/ventus/Sources/VentusCore/CurveEngine.swift",
+        "/Users/pablo/Projects/ventus/Sources/VentusCore/HardwareOwner.swift",
         "/Users/pablo/Projects/ventus/Sources/VentusCore/PowerReader.swift",
         "/Users/pablo/Projects/ventus/Sources/VentusCore/RuleEngine.swift",
         "/Users/pablo/Projects/ventus/Sources/VentusCore/SMCClient.swift",
@@ -287,6 +297,10 @@
       "fileList" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCoreTests.build/sources",
       "importPath" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/Modules",
       "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Tests/VentusCoreTests/HardwareOwnerTests.swift"
+        },
         {
           "kind" : "file",
           "name" : "/Users/pablo/Projects/ventus/Tests/VentusCoreTests/VentusCoreTests.swift"
@@ -308,6 +322,7 @@
       "moduleName" : "VentusCoreTests",
       "moduleOutputPath" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/Modules/VentusCoreTests.swiftmodule",
       "objects" : [
+        "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCoreTests.build/HardwareOwnerTests.swift.o",
         "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCoreTests.build/VentusCoreTests.swift.o"
       ],
       "otherArguments" : [
@@ -368,6 +383,10 @@
       "outputs" : [
         {
           "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCoreTests.build/HardwareOwnerTests.swift.o"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCoreTests.build/VentusCoreTests.swift.o"
         },
         {
@@ -377,6 +396,7 @@
       ],
       "prepareForIndexing" : false,
       "sources" : [
+        "/Users/pablo/Projects/ventus/Tests/VentusCoreTests/HardwareOwnerTests.swift",
         "/Users/pablo/Projects/ventus/Tests/VentusCoreTests/VentusCoreTests.swift"
       ],
       "tempsPath" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCoreTests.build",
@@ -861,6 +881,7 @@
       "-c",
       "/Users/pablo/Projects/ventus/Sources/VentusCore/Config.swift",
       "/Users/pablo/Projects/ventus/Sources/VentusCore/CurveEngine.swift",
+      "/Users/pablo/Projects/ventus/Sources/VentusCore/HardwareOwner.swift",
       "/Users/pablo/Projects/ventus/Sources/VentusCore/PowerReader.swift",
       "/Users/pablo/Projects/ventus/Sources/VentusCore/RuleEngine.swift",
       "/Users/pablo/Projects/ventus/Sources/VentusCore/SMCClient.swift",
@@ -928,6 +949,7 @@
       "-package-name",
       "ventus",
       "-c",
+      "/Users/pablo/Projects/ventus/Tests/VentusCoreTests/HardwareOwnerTests.swift",
       "/Users/pablo/Projects/ventus/Tests/VentusCoreTests/VentusCoreTests.swift",
       "-I",
       "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/Modules",
@@ -1337,6 +1359,10 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/HardwareOwner.swift.o"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/PowerReader.swift.o"
         },
         {
@@ -1379,6 +1405,10 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusCore/HardwareOwner.swift"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/pablo/Projects/ventus/Sources/VentusCore/PowerReader.swift"
         },
         {
@@ -1406,6 +1436,10 @@
         {
           "kind" : "virtual",
           "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Tests/VentusCoreTests/HardwareOwnerTests.swift"
         },
         {
           "kind" : "file",
@@ -1477,6 +1511,10 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/HardwareOwner.swift.o"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/PowerReader.swift.o"
         },
         {
@@ -1494,6 +1532,10 @@
         {
           "kind" : "file",
           "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/SensorReader.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCoreTests.build/HardwareOwnerTests.swift.o"
         },
         {
           "kind" : "file",
@@ -1538,6 +1580,10 @@
         {
           "kind" : "file",
           "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/CurveEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/HardwareOwner.swift.o"
         },
         {
           "kind" : "file",
@@ -1602,6 +1648,10 @@
         {
           "kind" : "file",
           "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/CurveEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/HardwareOwner.swift.o"
         },
         {
           "kind" : "file",

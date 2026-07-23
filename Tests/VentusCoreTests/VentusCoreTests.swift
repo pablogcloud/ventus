@@ -496,6 +496,22 @@ final class VentusCoreTests: XCTestCase {
         XCTAssertEqual(override, maxRPM)
     }
 
+    func testThermalDecision_ExplicitNotRPMSentinel() {
+        // Finding #4: the decision must be an explicit enum, so a valid fan curve
+        // ending at 0 RPM cannot alias with "no emergency". At 95°C the decision
+        // is .forceMax regardless of any curve RPM value.
+        let supervisor = SafetySupervisor(armed: true)
+        var hot: [SensorGroup: GroupReading] = [:]
+        hot[.cpuPerf] = GroupReading(max: 95, mean: 95, count: 1)
+        XCTAssertEqual(supervisor.thermalDecision(sensors: hot, thermalState: .nominal), .forceMax)
+
+        var cool: [SensorGroup: GroupReading] = [:]
+        cool[.cpuPerf] = GroupReading(max: 50, mean: 50, count: 1)
+        XCTAssertEqual(supervisor.thermalDecision(sensors: cool, thermalState: .nominal), .normal)
+        // Critical thermal state forces max even when temps read low.
+        XCTAssertEqual(supervisor.thermalDecision(sensors: cool, thermalState: .critical), .forceMax)
+    }
+
     func testSafetyOverride_CriticalState() {
         let supervisor = SafetySupervisor(armed: true)
 

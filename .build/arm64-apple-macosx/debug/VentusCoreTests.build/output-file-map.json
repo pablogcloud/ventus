@@ -2,6 +2,13 @@
   "": {
     "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusCoreTests.build/primary.swiftdeps"
   },
+  "/Users/pablo/Projects/ventus/Tests/VentusCoreTests/HardwareOwnerTests.swift": {
+    "dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusCoreTests.build/HardwareOwnerTests.d",
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusCoreTests.build/HardwareOwnerTests.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusCoreTests.build/HardwareOwnerTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusCoreTests.build/HardwareOwnerTests.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusCoreTests.build/HardwareOwnerTests.dia"
+  },
   "/Users/pablo/Projects/ventus/Tests/VentusCoreTests/VentusCoreTests.swift": {
     "dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusCoreTests.build/VentusCoreTests.d",
     "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusCoreTests.build/VentusCoreTests.swift.o",

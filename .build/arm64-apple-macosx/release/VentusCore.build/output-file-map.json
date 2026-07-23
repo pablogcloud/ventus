@@ -16,6 +16,12 @@
     "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/CurveEngine.swiftdeps",
     "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/CurveEngine.dia"
   },
+  "/Users/pablo/Projects/ventus/Sources/VentusCore/HardwareOwner.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/HardwareOwner.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/HardwareOwner~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/HardwareOwner.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/HardwareOwner.dia"
+  },
   "/Users/pablo/Projects/ventus/Sources/VentusCore/PowerReader.swift": {
     "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/PowerReader.swift.o",
     "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/PowerReader~partial.swiftmodule",

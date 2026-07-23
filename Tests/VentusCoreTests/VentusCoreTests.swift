@@ -372,6 +372,40 @@ final class VentusCoreTests: XCTestCase {
         XCTAssertEqual(results[1].targetRPM, 5400, accuracy: 1.0)
     }
 
+    func testPowerCurve_NotMaskedByTempDwell() {
+        // Regression (codex review): a power-led ramp-up must not be held down by an
+        // active temperature ramp-down hysteresis dwell.
+        let engine = CurveEngine()
+        let profile = Profile(
+            name: "test",
+            curves: [0: FanCurve(inputMix: [.cpuPerf: 1.0], points: [CurvePoint(temp: 40, rpm: 2000), CurvePoint(temp: 80, rpm: 6000)])],
+            powerCurve: PowerCurve(points: [PowerPoint(watts: 10, rpm: 2000), PowerPoint(watts: 60, rpm: 6000)]),
+            emaTimeConstantS: 0,
+            hysteresisGapC: 5,
+            hysteresisDwellS: 20
+        )
+
+        var sensors: [SensorGroup: GroupReading] = [:]
+        let now = Date()
+
+        // t0: hot (80°C) → target 6000
+        sensors[.cpuPerf] = GroupReading(max: 80, mean: 80, count: 1)
+        var results = engine.compute(sensors: sensors, profile: profile, actualRPMs: [0: 6000], now: now)
+
+        // t+5: temp falls to 60°C (inside ramp-down dwell, holds high) — fine so far
+        sensors[.cpuPerf] = GroupReading(max: 60, mean: 60, count: 1)
+        results = engine.compute(sensors: sensors, profile: profile, actualRPMs: [0: 6000], now: now.addingTimeInterval(5))
+
+        // t+6: power spikes to 55W (→ 5600 RPM) while temp dwell is still active.
+        // The power term must govern the curve target, not be masked by the dwell hold.
+        results = engine.compute(
+            sensors: sensors, profile: profile, actualRPMs: [0: 6000],
+            now: now.addingTimeInterval(6), packageWatts: 55
+        )
+        XCTAssert(results[0].targetRPM >= 5600 - 1)
+        XCTAssertEqual(results[0].powerCurveRPM, 5600, accuracy: 1.0)
+    }
+
     func testPowerCurve_LeadingIndicator() {
         let engine = CurveEngine()
         let profile = Profile(

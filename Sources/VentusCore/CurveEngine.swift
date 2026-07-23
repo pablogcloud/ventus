@@ -2,31 +2,21 @@ import Foundation
 
 /// Pure logic for computing fan RPM targets from sensor readings.
 /// Fully deterministic; injected inputs, clock, and state for testability.
-final class CurveEngine: Sendable {
+/// NOT thread-safe: holds mutable EMA/hysteresis/slew state. The owner must
+/// confine all compute() calls to one actor or serial queue.
+public final class CurveEngine {
     /// Explanation of which input term won for a fan target.
-    struct Explanation: Equatable, Sendable {
-        let fan: Int
-        let targetRPM: Double
-        let tempCurveRPM: Double
-        let powerCurveRPM: Double
-        let pressureFloorRPM: Double
-        let safetyOverrideRPM: Double
-        let slewLimitedRPM: Double
-
-        /// Which term dominated the final decision.
-        var winner: String {
-            if slewLimitedRPM != targetRPM {
-                return "slew_limited"
-            } else if safetyOverrideRPM > 0 && slewLimitedRPM == safetyOverrideRPM {
-                return "safety_override"
-            } else if pressureFloorRPM > 0 && slewLimitedRPM == pressureFloorRPM {
-                return "pressure_floor"
-            } else if powerCurveRPM > 0 && slewLimitedRPM == powerCurveRPM {
-                return "power_curve"
-            } else {
-                return "temp_curve"
-            }
-        }
+    public struct Explanation: Equatable, Sendable {
+        public let fan: Int
+        public let targetRPM: Double
+        public let tempCurveRPM: Double
+        public let powerCurveRPM: Double
+        public let pressureFloorRPM: Double
+        public let safetyOverrideRPM: Double
+        /// Post-slew, pre-floor value (differs from targetRPM when a floor/override raised it).
+        public let slewLimitedRPM: Double
+        /// Which term dominated the final decision (computed at decision time).
+        public let winner: String
     }
 
     private let logger: (String) -> Void
@@ -44,15 +34,15 @@ final class CurveEngine: Sendable {
     private var lastComputeTime: Date?
 
     /// Adaptive tick rate decision.
-    var suggestedTickS: Double = 1.0
+    public var suggestedTickS: Double = 1.0
 
-    init(logger: @escaping (String) -> Void = { _ in }) {
+    public init(logger: @escaping (String) -> Void = { _ in }) {
         self.logger = logger
     }
 
     /// Computes per-fan RPM targets given current sensor readings and profile.
     /// Returns array of (fan index, targetRPM, explanation) tuples.
-    func compute(
+    public func compute(
         sensors: [SensorGroup: GroupReading],
         profile: Profile,
         actualRPMs: [Int: Double],
@@ -96,38 +86,48 @@ final class CurveEngine: Sendable {
             // Pressure floor based on thermal state
             let pressureFloor = computePressureFloor(thermalState: thermalState, maxRPM: maxRPM)
 
-            // Hysteresis ramp-down (asymmetric) — apply to temp/power curves only
-            let hysteresisRPM = applyHysteresis(
+            // Hysteresis ramp-down (asymmetric) — temperature term ONLY, so a
+            // power-led ramp-up is never masked by a temperature ramp-down dwell
+            let hystereticTempRPM = applyHysteresis(
                 fan: fanIndex,
-                targetRPM: max(tempCurveRPM, powerCurveRPM),
+                targetRPM: tempCurveRPM,
                 blendedTemp: blendedTemp,
                 gap: profile.hysteresisGapC,
                 dwell: profile.hysteresisDwellS,
                 now: now
             )
+            let curveTargetRPM = max(hystereticTempRPM, powerCurveRPM)
 
             // Slew rate limiting (applied before pressure floor/safety)
             let slewLimited = applySlewRateLimit(
                 fan: fanIndex,
-                targetRPM: hysteresisRPM,
+                targetRPM: curveTargetRPM,
                 lastActual: actual,
                 maxSlewRPMPerS: 300.0,
                 deltaTime: deltaTime
             )
 
             // Safety override (hard ceiling)
-            let safetyRPM: Double
-            if safetyOverride > 0 {
-                safetyRPM = safetyOverride
-            } else {
-                safetyRPM = 0
-            }
+            let safetyRPM: Double = safetyOverride > 0 ? safetyOverride : 0
 
             // Pressure floor and safety override are hard minimums that bypass slew limiting
             let finalRPM = max(slewLimited, pressureFloor, safetyRPM)
 
             // Cache actual for next iteration
             lastActualRPM[fanIndex] = finalRPM
+
+            let winner: String
+            if safetyRPM > 0 && finalRPM == safetyRPM && safetyRPM > slewLimited {
+                winner = "safety_override"
+            } else if pressureFloor > 0 && finalRPM == pressureFloor && pressureFloor > slewLimited {
+                winner = "pressure_floor"
+            } else if slewLimited != curveTargetRPM {
+                winner = "slew_limited"
+            } else if powerCurveRPM > 0 && powerCurveRPM >= hystereticTempRPM {
+                winner = "power_curve"
+            } else {
+                winner = "temp_curve"
+            }
 
             results.append(Explanation(
                 fan: fanIndex,
@@ -136,7 +136,8 @@ final class CurveEngine: Sendable {
                 powerCurveRPM: powerCurveRPM,
                 pressureFloorRPM: pressureFloor,
                 safetyOverrideRPM: safetyRPM,
-                slewLimitedRPM: finalRPM
+                slewLimitedRPM: slewLimited,
+                winner: winner
             ))
         }
 
@@ -311,7 +312,7 @@ final class CurveEngine: Sendable {
 }
 
 /// Thermal state from ProcessInfo.
-enum ThermalState: Equatable {
+public enum ThermalState: Equatable {
     case nominal
     case fair
     case serious

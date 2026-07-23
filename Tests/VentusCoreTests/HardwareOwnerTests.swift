@@ -10,6 +10,8 @@ final class FakeFanHardware: FanHardware, @unchecked Sendable {
     var forceFails: Set<Int> = []        // force() returns false for these
     var toAutoFails: Set<Int> = []       // toAuto() "succeeds" but leaves mode forced
     var hangSeconds: Double = 0          // sleep injected into force() to simulate a wedge
+    var fanCountReadings: [Int] = []     // scripted FNum reads before falling back to count
+    private(set) var forceCalls: [Int] = []
 
     private let lock = NSLock()
 
@@ -19,7 +21,12 @@ final class FakeFanHardware: FanHardware, @unchecked Sendable {
         self.maxRPM = Dictionary(uniqueKeysWithValues: (0..<count).map { ($0, maxRPM) })
     }
 
-    func fanCount() -> Int { count }
+    func fanCount() -> Int {
+        lock.withLock {
+            guard !fanCountReadings.isEmpty else { return count }
+            return fanCountReadings.removeFirst()
+        }
+    }
     func fanMax(_ fan: Int) -> Double? { lock.withLock { maxRPM[fan] } }
 
     func readMode(_ fan: Int) -> UInt8? {
@@ -29,6 +36,7 @@ final class FakeFanHardware: FanHardware, @unchecked Sendable {
     func force(_ fan: Int, rpm: Double) -> Bool {
         if hangSeconds > 0 { Thread.sleep(forTimeInterval: hangSeconds) }
         return lock.withLock {
+            forceCalls.append(fan)
             if forceFails.contains(fan) { return false }
             mode[fan] = 1
             return true
@@ -73,6 +81,43 @@ final class HardwareOwnerTests: XCTestCase {
         guard case .failed = owner.submit(.restore, deadline: 1) else {
             return XCTFail("expected failure when an expected fan is unreadable")
         }
+    }
+
+    func testRestore_InitialFanCountZeroThenLiveFansAppear_FailsIfAnyStaysForced() {
+        let hw = FakeFanHardware(count: 2)
+        hw.fanCountReadings = [0, 2]
+        hw.toAutoFails = [1]
+        let owner = HardwareOwner(hardware: hw)
+
+        guard case .failed = owner.submit(.restore, deadline: 1) else {
+            return XCTFail("expected failure when a live fan stays forced")
+        }
+        XCTAssertTrue(hw.fanCountReadings.isEmpty, "restore must refresh a transiently-zero FNum")
+        XCTAssertEqual(hw.mode[0], 0)
+        XCTAssertEqual(hw.mode[1], 1)
+    }
+
+    func testForceMaxAll_InitialFanCountZeroThenLiveFansAppear_ForcesBoth() {
+        let hw = FakeFanHardware(count: 2)
+        hw.mode = [0: 0, 1: 0]
+        hw.fanCountReadings = [0, 2]
+        let owner = HardwareOwner(hardware: hw)
+
+        XCTAssertEqual(owner.submit(.forceMaxAll, deadline: 1), .ok)
+        XCTAssertTrue(hw.fanCountReadings.isEmpty, "forceMaxAll must refresh a transiently-zero FNum")
+        XCTAssertEqual(hw.forceCalls, [0, 1])
+        XCTAssertEqual(hw.mode[0], 1)
+        XCTAssertEqual(hw.mode[1], 1)
+    }
+
+    func testRestore_UnknownFanCountAndNoReadableFansCannotCertify() {
+        let hw = FakeFanHardware(count: 0)
+        let owner = HardwareOwner(hardware: hw)
+
+        XCTAssertEqual(
+            owner.submit(.restore, deadline: 1),
+            .failed("fan count unknown; cannot certify")
+        )
     }
 
     func testEmergencyRestore_LatchesAndRefusesFurtherControl() {

@@ -65,9 +65,9 @@ public final class HardwareOwner: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.formm.ventus.hwowner")
     private let stateLock = NSLock()
     private var latched = false
-    /// Fan count captured once at init from a successful read; restore is
-    /// measured against THIS, so a fan that vanishes at restore time is a
-    /// failure, not a silent skip.
+    /// Baseline captured once at init. Live reads may raise this count so a
+    /// transiently-unreadable FNum self-heals, but can never lower it and make
+    /// a previously expected fan disappear from verification.
     private let expectedFanCount: Int
 
     public init(hardware: FanHardware, logger: @escaping (String) -> Void = { _ in }) {
@@ -78,6 +78,10 @@ public final class HardwareOwner: @unchecked Sendable {
     }
 
     public var isLatched: Bool { stateLock.withLock { latched } }
+
+    private func effectiveFanCount() -> Int {
+        max(expectedFanCount, hw.fanCount())
+    }
 
     /// Submits a command and waits up to `deadline` for its real result.
     /// Deadlock-free: the caller waits on a semaphore, never on a lock held
@@ -122,9 +126,10 @@ public final class HardwareOwner: @unchecked Sendable {
 
         case .forceMaxAll:
             if latchedNow { return .refusedLatched }
-            let count = expectedFanCount > 0 ? expectedFanCount : 8
+            let count = effectiveFanCount()
+            let fanRange = count > 0 ? 0 ..< count : 0 ..< 8
             var failures: [Int] = []
-            for f in 0 ..< count {
+            for f in fanRange {
                 let maxRPM = hw.fanMax(f) ?? 6800
                 if !hw.force(f, rpm: maxRPM) { failures.append(f) }
             }
@@ -140,30 +145,47 @@ public final class HardwareOwner: @unchecked Sendable {
         }
     }
 
-    /// All-or-fail restore: every expected fan must read back mode 0. A fan that
-    /// was expected but is now unreadable is a FAILURE (not a skip) — that's the
-    /// exact case that let a forced fan slip through the old best-effort restore.
+    /// All-or-fail restore: every expected fan must read back mode 0. When FNum
+    /// is genuinely unknown, probe known fan slots and certify only readable,
+    /// verified fans. An unreadable forced fan is not reachable in practice:
+    /// `forceFan` must read that fan's min/max envelope before it can force mode.
     private func restoreAllVerified() -> Result {
-        let count = expectedFanCount > 0 ? expectedFanCount : 8
+        let count = effectiveFanCount()
         var failures: [Int] = []
         var verified = 0
-        for f in 0 ..< count {
-            guard hw.readMode(f) != nil else {
-                // Unreadable now. If we expected this fan to exist, that's a failure.
-                if f < expectedFanCount { failures.append(f) }
-                continue
+
+        if count > 0 {
+            for f in 0 ..< count {
+                guard hw.readMode(f) != nil else {
+                    failures.append(f)
+                    continue
+                }
+                _ = hw.toAuto(f)
+                if hw.readMode(f) == 0 {
+                    verified += 1
+                } else {
+                    failures.append(f)
+                }
             }
-            _ = hw.toAuto(f)
-            if hw.readMode(f) == 0 {
-                verified += 1
-            } else {
-                failures.append(f)
+        } else {
+            for f in 0 ..< 8 {
+                guard hw.readMode(f) != nil else { continue }
+                _ = hw.toAuto(f)
+                if hw.readMode(f) == 0 {
+                    verified += 1
+                } else {
+                    failures.append(f)
+                }
             }
         }
+
         if !failures.isEmpty {
             return .failed("restore could not verify fans \(failures)")
         }
         if verified == 0 {
+            if count == 0 {
+                return .failed("fan count unknown; cannot certify")
+            }
             return .failed("restore verified zero fans")
         }
         return .ok

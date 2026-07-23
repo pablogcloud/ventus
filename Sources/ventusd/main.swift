@@ -168,6 +168,7 @@ class DaemonController {
     private var controlLoopTimer: DispatchSourceTimer?
     private let watchdogQueue = DispatchQueue(label: "com.formm.ventus.watchdog", qos: .utility)
     private var shouldKeepRunning = true
+    private var pendingRestore = false
     // NSXPCListener.delegate is weak — both MUST be retained here or every
     // incoming connection is silently rejected after setupXPCServer() returns.
     private var xpcListener: NSXPCListener?
@@ -212,10 +213,24 @@ class DaemonController {
         // Register signal handlers
         setupSignalHandlers()
 
-        // CRITICAL: Unconditionally restore auto on startup (FIX #1)
-        // This ensures that after SIGKILL + launchd restart, fans revert to Apple auto
+        // Unconditionally restore auto on startup. If verification keeps
+        // failing, observe-mode ticks continue retrying until it succeeds.
         logMessage("[Daemon] Performing startup restoreAuto (idempotent, safe when SMC unavailable)")
-        state.restoreAuto()
+        var startupRestoreSucceeded = false
+        for attempt in 1 ... 3 {
+            if state.restoreAuto() {
+                startupRestoreSucceeded = true
+                break
+            }
+            logMessage("[Daemon] Startup restore attempt \(attempt)/3 failed")
+            if attempt < 3 {
+                Thread.sleep(forTimeInterval: 0.2)
+            }
+        }
+        if !startupRestoreSucceeded {
+            logMessage("[Daemon] CRITICAL: startup restore failed")
+            pendingRestore = true
+        }
 
         // Start the control loop
         startControlLoop()
@@ -284,6 +299,15 @@ class DaemonController {
             + Double(rusage.ru_stime.tv_sec) + Double(rusage.ru_stime.tv_usec) / 1e6
         state.cpuWatchdog.recordSample(rusageSecs, at: now)
 
+        if !state.armed, pendingRestore {
+            if state.restoreAuto() {
+                pendingRestore = false
+                logMessage("[ControlLoop] Pending restore verified; fans are back in Apple auto")
+            } else {
+                logMessage("[ControlLoop] CRITICAL: pending restore retry failed")
+            }
+        }
+
         // Read hardware
         let sensors = state.sensorReader.snapshot()
         let power = state.powerReader.readPower()
@@ -298,7 +322,12 @@ class DaemonController {
             logMessage("[ControlLoop] SENSOR FAILURE: critical groups (cpuPerf/gpu/soc) all absent")
             if state.armed {
                 logMessage("[ControlLoop] Armed mode detected during sensor failure — restoring auto and entering observe")
-                state.restoreAuto()
+                if state.restoreAuto() {
+                    pendingRestore = false
+                } else {
+                    pendingRestore = true
+                    logMessage("[ControlLoop] CRITICAL: sensor-failure restore failed")
+                }
                 state.setArmed(false)
                 saveConfig(state.config)
             }
@@ -411,9 +440,8 @@ class DaemonController {
 
     private func setupSignalHandlers() {
         // Signal sources live on signalQueue (NOT serialQueue): a stalled control
-        // loop must never delay SIGTERM cleanup. SIG_IGN is installed FIRST (in
-        // main, before the run loop) so no default-disposition window exists;
-        // re-assert here defensively.
+        // loop must never delay SIGTERM cleanup. Replace the minimal init-time
+        // handlers with ignored dispositions before activating dispatch sources.
         signal(SIGTERM, SIG_IGN)
         signal(SIGINT, SIG_IGN)
 
@@ -828,11 +856,9 @@ class VentusXPCServiceImpl: NSObject, VentusXPCProtocol {
 
 // MARK: - Entry Point
 
-// Install SIG_IGN before ANY other work so there is never a window where the
-// default (terminate-without-cleanup) disposition is active. The dispatch
-// sources set up later are the sole delivery path.
-signal(SIGTERM, SIG_IGN)
-signal(SIGINT, SIG_IGN)
+// No fans are forced before runDaemon(), so immediate _exit during init is safe.
+signal(SIGTERM) { _ in _exit(0) }
+signal(SIGINT) { _ in _exit(0) }
 
 let arguments = CommandLine.arguments
 let dryRun = arguments.contains("--dry-run")
@@ -844,30 +870,13 @@ if restoreAutoFlag {
         logMessage("[Main] FAILED: cannot open SMC connection — fans may still be forced")
         exit(1)
     }
-    // FNum can be unreadable; fall back to probing a fixed range. We must not
-    // "succeed" having written nothing (the old bug that let uninstall delete
-    // the daemon with fans still forced).
-    let reported = smc.listFanCount()
-    let fanRange = reported > 0 ? 0 ..< reported : 0 ..< 8
-    var verifiedRestored = 0
-    var anyFailure = false
-    for i in fanRange {
-        // A fan "exists" if we can read its mode at all.
-        guard smc.readFanMode(i) != nil else { continue }
-        smc.setFanMode(i, mode: 0)
-        if let mode = smc.readFanMode(i), mode == 0 {
-            verifiedRestored += 1
-        } else {
-            logMessage("[Main] VERIFY FAILED: F\(i)Md not 0 after restore")
-            anyFailure = true
-        }
+    let owner = HardwareOwner(hardware: smc, logger: logMessage)
+    let result = owner.submit(.restore, deadline: 3)
+    logMessage("[Main] Restore-auto result: \(result)")
+    if result == .ok {
+        exit(0)
     }
-    if anyFailure || verifiedRestored == 0 {
-        logMessage("[Main] Restore failed (verified=\(verifiedRestored), failure=\(anyFailure))")
-        exit(1)
-    }
-    logMessage("[Main] Restored \(verifiedRestored) fan(s) to auto (verified)")
-    exit(0)
+    exit(1)
 }
 
 logMessage("[Main] Starting with dryRun: \(dryRun)")

@@ -16,13 +16,16 @@ PLIST_FILE="/Library/LaunchDaemons/${DAEMON_NAME}.plist"
 LOG_DIR="/Library/Logs/Ventus"
 STARTUP_LOG="${LOG_DIR}/ventusd.log"
 
-echo "[Ventus Install] Building daemon in release mode..."
 cd "$SCRIPT_DIR"
-swift build -c release --product ventusd
-
-BUILT_BIN=".build/release/ventusd"
+BUILT_BIN="${VENTUSD_BIN:-.build/release/ventusd}"
 if [[ ! -f "$BUILT_BIN" ]]; then
-    echo "[ERROR] Build failed; binary not found at $BUILT_BIN"
+    # Prefer a pre-built binary (build as the invoking user, not root);
+    # fall back to building only if none exists.
+    echo "[Ventus Install] No prebuilt binary; building release..."
+    swift build -c release --product ventusd
+fi
+if [[ ! -f "$BUILT_BIN" ]]; then
+    echo "[ERROR] Binary not found at $BUILT_BIN"
     exit 1
 fi
 

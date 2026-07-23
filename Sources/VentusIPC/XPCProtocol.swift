@@ -2,7 +2,7 @@ import Foundation
 
 /// XPC protocol for communication between daemon and clients.
 /// This protocol defines all methods available via NSXPCConnection.
-@objc protocol VentusXPCProtocol {
+@objc public protocol VentusXPCProtocol {
     /// Returns current daemon telemetry as JSON Data.
     /// reply: (Data) -> Void receives a JSON-encoded TelemetrySnapshot
     func getStatus(reply: @escaping (Data) -> Void)
@@ -28,16 +28,16 @@ import Foundation
 }
 
 /// Codable result for XPC replies.
-struct XPCResult: Codable, Sendable {
-    let success: Bool
-    let error: String?
-    let data: String?
+public struct XPCResult: Codable, Sendable {
+    public let success: Bool
+    public let error: String?
+    public let data: String?
 
-    static func ok(data: String? = nil) -> XPCResult {
+    public static func ok(data: String? = nil) -> XPCResult {
         XPCResult(success: true, error: nil, data: data)
     }
 
-    static func error(_ message: String) -> XPCResult {
+    public static func error(_ message: String) -> XPCResult {
         XPCResult(success: false, error: message, data: nil)
     }
 }

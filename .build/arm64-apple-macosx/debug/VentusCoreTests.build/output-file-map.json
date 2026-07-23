@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusCoreTests.build/primary.swiftdeps"
+  },
+  "/Users/pablo/Projects/ventus/Tests/VentusCoreTests/VentusCoreTests.swift": {
+    "dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusCoreTests.build/VentusCoreTests.d",
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusCoreTests.build/VentusCoreTests.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusCoreTests.build/VentusCoreTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusCoreTests.build/VentusCoreTests.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusCoreTests.build/VentusCoreTests.dia"
+  }
+}

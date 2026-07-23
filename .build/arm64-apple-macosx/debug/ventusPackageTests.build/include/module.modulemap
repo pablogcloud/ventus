@@ -1,0 +1,3 @@
+module ventusPackageTests {
+    header "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/ventusPackageTests.build/include/ventusPackageTests-Swift.h"
+}

@@ -1,5 +1,6 @@
 import Foundation
-import VentusCore
+@preconcurrency import VentusCore
+import VentusIPC
 import os.log
 
 // MARK: - Telemetry Data Structures (Simplified for serialization)
@@ -48,7 +49,7 @@ func logMessage(_ message: String) {
 
 // MARK: - Daemon State
 
-class DaemonState {
+final class DaemonState {
     var config: Config
     var armed: Bool = false
     let sensorReader: SensorReader
@@ -147,6 +148,14 @@ class DaemonState {
 class DaemonController {
     private let state: DaemonState
     private let dryRun: Bool
+    private let serialQueue = DispatchQueue(label: "com.formm.ventus.control-loop", qos: .utility)
+    private var controlLoopTimer: DispatchSourceTimer?
+    private let watchdogQueue = DispatchQueue(label: "com.formm.ventus.watchdog", qos: .utility)
+    private var shouldKeepRunning = true
+    // NSXPCListener.delegate is weak — both MUST be retained here or every
+    // incoming connection is silently rejected after setupXPCServer() returns.
+    private var xpcListener: NSXPCListener?
+    private var xpcDelegate: VentusXPCServerDelegate?
 
     init(dryRun: Bool = false) throws {
         self.dryRun = dryRun
@@ -171,8 +180,279 @@ class DaemonController {
 
     private func runDaemon() {
         logMessage("[Daemon] Starting in normal mode")
-        // TODO: Implement full daemon with control loop, timers, and XPC server
-        logMessage("[Daemon] Normal daemon mode not yet implemented")
+
+        // Register signal handlers
+        setupSignalHandlers()
+
+        // Start the control loop
+        startControlLoop()
+
+        // Start watchdog on independent queue
+        startWatchdog()
+
+        // Block on RunLoop/dispatchMain
+        dispatchMain()
+    }
+
+    // MARK: - XPC Server Setup
+
+    private func setupXPCServer() {
+        logMessage("[XPC] Setting up NSXPCListener for com.formm.ventus.daemon")
+
+        let listener = NSXPCListener(machServiceName: "com.formm.ventus.daemon")
+        let delegate = VentusXPCServerDelegate(controller: self)
+        listener.delegate = delegate
+        xpcListener = listener
+        xpcDelegate = delegate
+        listener.resume()
+
+        logMessage("[XPC] Listener activated on com.formm.ventus.daemon")
+    }
+
+    // MARK: - Control Loop
+
+    private func startControlLoop() {
+        setupXPCServer()
+
+        serialQueue.async { [weak self] in
+            self?.runControlLoop()
+        }
+    }
+
+    private func runControlLoop() {
+        logMessage("[ControlLoop] Starting on serial queue")
+        scheduleNextControlTick(1.0)
+    }
+
+    private func scheduleNextControlTick(_ tickS: Double) {
+        let timer = DispatchSource.makeTimerSource(queue: serialQueue)
+        self.controlLoopTimer = timer
+
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            let newTickS = self.controlLoopStep()
+            self.scheduleNextControlTick(newTickS)
+        }
+
+        let deadline = DispatchTime.now() + .milliseconds(Int(tickS * 1000))
+        timer.schedule(deadline: deadline)
+        timer.resume()
+    }
+
+    private func controlLoopStep() -> Double {
+        let now = Date()
+
+        // Record heartbeat for watchdog
+        state.heartbeatWatchdog.recordHeartbeat()
+
+        // Record CPU usage sample
+        let rusage = getrusage()
+        let rusageSecs = Double(rusage.ru_utime.tv_sec) + Double(rusage.ru_utime.tv_usec) / 1e6
+            + Double(rusage.ru_stime.tv_sec) + Double(rusage.ru_stime.tv_usec) / 1e6
+        state.cpuWatchdog.recordSample(rusageSecs, at: now)
+
+        // Read hardware
+        let sensors = state.sensorReader.snapshot()
+        let power = state.powerReader.readPower()
+        let fanCount = state.smcClient?.listFanCount() ?? 2
+
+        var fanActuals: [Int: Double] = [:]
+        for i in 0 ..< fanCount {
+            if let actual = state.smcClient?.readFanActual(i) {
+                fanActuals[i] = Double(actual)
+            }
+        }
+
+        // Get thermal state
+        let thermalState = getThermalState()
+
+        // Evaluate active profile
+        let activeProfile = state.config.pinnedProfile ?? "balanced"
+
+        // Run curve engine
+        guard let profile = state.config.profiles[activeProfile] else {
+            return 5.0  // Default to cool tick if profile missing
+        }
+
+        let explanations = state.curveEngine.compute(
+            sensors: sensors,
+            profile: profile,
+            actualRPMs: fanActuals,
+            now: now,
+            thermalState: thermalState,
+            safetyOverride: 0,
+            packageWatts: power?.totalW
+        )
+
+        // Apply safety supervisor check
+        let safetyRPM = state.supervisor.getSafetyOverrideRPM(
+            maxRPM: (profile.curves.first?.value.points.last?.rpm ?? 6000),
+            sensors: sensors,
+            thermalState: thermalState
+        )
+
+        // Write to SMC only if armed AND no thermal override
+        if state.armed && safetyRPM == 0 {
+            for explanation in explanations {
+                let targetRPM = Float(explanation.targetRPM)
+                state.smcClient?.setFanMode(explanation.fan, mode: 1)  // 1 = forced
+                state.smcClient?.setFanTarget(explanation.fan, rpm: targetRPM)
+            }
+        } else if safetyRPM > 0 && state.armed {
+            // Thermal override: force all fans to max
+            for i in 0 ..< fanCount {
+                state.smcClient?.setFanMode(i, mode: 1)
+                state.smcClient?.setFanTarget(i, rpm: Float(safetyRPM))
+            }
+        }
+
+        // Update state snapshot
+        state.lastSensorSnapshot = sensors
+        state.lastPowerReading = power
+        state.lastFanActuals = fanActuals
+        state.lastExplanations = explanations
+        state.lastActiveRule = nil
+
+        // Determine next tick interval from engine
+        let nextTickS = state.curveEngine.suggestedTickS
+        return nextTickS
+    }
+
+    // MARK: - Watchdog Thread
+
+    private func startWatchdog() {
+        watchdogQueue.async { [weak self] in
+            self?.runWatchdog()
+        }
+    }
+
+    private func runWatchdog() {
+        logMessage("[Watchdog] Starting independent watchdog thread")
+
+        while shouldKeepRunning {
+            Thread.sleep(forTimeInterval: 0.5)
+
+            let now = Date()
+
+            // Check control loop heartbeat
+            if state.heartbeatWatchdog.isStalled(now: now) {
+                let stallTime = state.heartbeatWatchdog.secondsSinceHeartbeat(now: now)
+                logMessage("[Watchdog] CONTROL LOOP STALLED for \(String(format: "%.1f", stallTime))s — restoring auto and exiting")
+                state.restoreAuto()
+                exit(1)
+            }
+
+            // Check self-CPU usage
+            if state.cpuWatchdog.isHighCPU(now: now) {
+                let cpuPercent = state.cpuWatchdog.measureCPUPercent(now: now)
+                logMessage("[Watchdog] SELF-CPU HIGH (\(String(format: "%.1f", cpuPercent * 100))%) — restoring auto and exiting")
+                state.restoreAuto()
+                exit(1)
+            }
+        }
+    }
+
+    // MARK: - Signal Handlers
+
+    private func setupSignalHandlers() {
+        let sigTermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: serialQueue)
+        let sigIntSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: serialQueue)
+
+        sigTermSource.setEventHandler { [weak self] in
+            self?.handleSignal()
+        }
+
+        sigIntSource.setEventHandler { [weak self] in
+            self?.handleSignal()
+        }
+
+        sigTermSource.resume()
+        sigIntSource.resume()
+
+        signal(SIGTERM, SIG_DFL)
+        signal(SIGINT, SIG_DFL)
+    }
+
+    private func handleSignal() {
+        logMessage("[Signal] Caught SIGTERM/SIGINT — restoring auto and exiting")
+        shouldKeepRunning = false
+        state.restoreAuto()
+        exit(0)
+    }
+
+    // MARK: - XPC Methods
+
+    func getStatusXPC() -> Data? {
+        let snapshot = state.getSnapshot()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try? encoder.encode(snapshot)
+    }
+
+    func getConfigXPC() -> Data? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try? encoder.encode(state.config)
+    }
+
+    func setConfigXPC(_ configData: Data) -> XPCResult {
+        do {
+            let decoder = JSONDecoder()
+            let newConfig = try decoder.decode(Config.self, from: configData)
+            try newConfig.validate()
+
+            // Preserve armed state if already set
+            let wasArmed = state.armed
+            state.setArmed(false)  // Temporarily disarm for config update
+            state.config = newConfig
+            saveConfig(newConfig)
+            if wasArmed {
+                state.setArmed(true)  // Restore armed state if it was set
+            }
+
+            logMessage("[XPC] Config updated via setConfig")
+            return .ok()
+        } catch {
+            let errorMsg = "Config validation failed: \(error)"
+            logMessage("[XPC] \(errorMsg)")
+            return .error(errorMsg)
+        }
+    }
+
+    func setProfileXPC(_ profileName: String) -> XPCResult {
+        if state.config.profiles[profileName] != nil {
+            state.config.pinnedProfile = profileName
+            saveConfig(state.config)
+            logMessage("[XPC] Profile pinned to \(profileName)")
+            return .ok()
+        } else {
+            let errorMsg = "Profile '\(profileName)' not found"
+            logMessage("[XPC] \(errorMsg)")
+            return .error(errorMsg)
+        }
+    }
+
+    func armXPC() -> XPCResult {
+        state.setArmed(true)
+        saveConfig(state.config)
+        logMessage("[XPC] Armed mode enabled")
+        return .ok()
+    }
+
+    func disarmXPC() -> XPCResult {
+        state.setArmed(false)
+        saveConfig(state.config)
+        state.restoreAuto()
+        logMessage("[XPC] Disarmed mode enabled")
+        return .ok()
+    }
+
+    func setAppleAutoXPC() -> XPCResult {
+        state.restoreAuto()
+        state.setArmed(false)
+        saveConfig(state.config)
+        logMessage("[XPC] Fans restored to Apple auto")
+        return .ok()
     }
 
     private func runDryRun() {
@@ -182,7 +462,7 @@ class DaemonController {
         fflush(stdout)
 
         for tickCount in 0 ..< 5 {
-            let telemetry = controlStep()
+            let telemetry = dryRunControlStep()
 
             let sensorLine = telemetry.sensors.isEmpty
                 ? "(no sensors)"
@@ -201,7 +481,7 @@ class DaemonController {
         logMessage("[DryRun] 5 ticks complete, exiting")
     }
 
-    private func controlStep() -> TelemetrySnapshot {
+    private func dryRunControlStep() -> TelemetrySnapshot {
         let now = Date()
 
         // Record heartbeat
@@ -230,7 +510,6 @@ class DaemonController {
 
         // Evaluate active profile
         let activeProfile = state.config.pinnedProfile ?? "balanced"
-        let activeRule: String? = nil
 
         // Run curve engine
         guard let profile = state.config.profiles[activeProfile] else {
@@ -247,12 +526,12 @@ class DaemonController {
             packageWatts: power?.totalW
         )
 
-        // Update state snapshot
+        // Update state snapshot (no SMC writes in dry-run)
         state.lastSensorSnapshot = sensors
         state.lastPowerReading = power
         state.lastFanActuals = fanActuals
         state.lastExplanations = explanations
-        state.lastActiveRule = activeRule
+        state.lastActiveRule = nil
 
         return state.getSnapshot()
     }
@@ -322,6 +601,127 @@ func saveConfig(_ config: Config) {
         logMessage("[Config] Saved successfully to \(configPath)")
     } catch {
         logMessage("[Config] Save failed: \(error)")
+    }
+}
+
+// MARK: - XPC Server Delegate
+
+class VentusXPCServerDelegate: NSObject, NSXPCListenerDelegate {
+    let controller: DaemonController
+
+    init(controller: DaemonController) {
+        self.controller = controller
+    }
+
+    func listener(_ listener: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
+        logMessage("[XPC] New connection attempt")
+
+        let exportedObject = VentusXPCServiceImpl(controller: controller)
+        newConnection.exportedInterface = NSXPCInterface(with: VentusXPCProtocol.self)
+        newConnection.exportedObject = exportedObject
+
+        newConnection.resume()
+        return true
+    }
+}
+
+// MARK: - XPC Service Implementation
+
+class VentusXPCServiceImpl: NSObject, VentusXPCProtocol {
+    let controller: DaemonController
+
+    init(controller: DaemonController) {
+        self.controller = controller
+    }
+
+    func getStatus(reply: @escaping (Data) -> Void) {
+        DispatchQueue.global().async { [weak self] in
+            guard let self = self else { return }
+            if let data = self.controller.getStatusXPC() {
+                reply(data)
+            } else {
+                let errorSnapshot = TelemetrySnapshot(
+                    mode: "error",
+                    activeProfile: "unknown",
+                    activeRule: nil,
+                    timestamp: Date(),
+                    uptime: 0,
+                    sensors: [],
+                    fans: [],
+                    packageWatts: nil,
+                    explanations: [],
+                    version: "1.0.0"
+                )
+                let encoder = JSONEncoder()
+                if let data = try? encoder.encode(errorSnapshot) {
+                    reply(data)
+                }
+            }
+        }
+    }
+
+    func getConfig(reply: @escaping (Data) -> Void) {
+        DispatchQueue.global().async { [weak self] in
+            guard let self = self else { return }
+            if let data = self.controller.getConfigXPC() {
+                reply(data)
+            }
+        }
+    }
+
+    func setConfig(_ configData: Data, reply: @escaping (Data) -> Void) {
+        DispatchQueue.global().async { [weak self] in
+            guard let self = self else { return }
+            let result = self.controller.setConfigXPC(configData)
+            let encoder = JSONEncoder()
+            if let data = try? encoder.encode(result) {
+                reply(data)
+            }
+        }
+    }
+
+    func setProfile(_ profileName: String, reply: @escaping (Data) -> Void) {
+        DispatchQueue.global().async { [weak self] in
+            guard let self = self else { return }
+            let result = self.controller.setProfileXPC(profileName)
+            let encoder = JSONEncoder()
+            if let data = try? encoder.encode(result) {
+                reply(data)
+            }
+        }
+    }
+
+    func arm(reply: @escaping (Data) -> Void) {
+        DispatchQueue.global().async { [weak self] in
+            guard let self = self else { return }
+            let result = self.controller.armXPC()
+            let encoder = JSONEncoder()
+            if let data = try? encoder.encode(result) {
+                reply(data)
+            }
+        }
+    }
+
+    func disarm(reply: @escaping (Data) -> Void) {
+        DispatchQueue.global().async { [weak self] in
+            guard let self = self else { return }
+            let result = self.controller.disarmXPC()
+            let encoder = JSONEncoder()
+            if let data = try? encoder.encode(result) {
+                reply(data)
+            }
+        }
+    }
+
+    func setAppleAuto(reply: @escaping (Data) -> Void) {
+        DispatchQueue.global().async { [weak self] in
+            guard let self = self else { return }
+            let result = self.controller.setAppleAutoXPC()
+            let encoder = JSONEncoder()
+            if let data = try? encoder.encode(result) {
+                reply(data)
+            }
+        }
     }
 }
 

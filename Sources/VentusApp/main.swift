@@ -86,11 +86,13 @@ final class DaemonClientObserver: NSObject, ObservableObject {
     }
 
     func setProfile(_ profileName: String) async -> Bool {
+        guard status?.isFanControlAvailable ?? true else { return false }
         guard let client = client else { return false }
         return await client.setProfile(profileName)
     }
 
     func arm() async -> Bool {
+        guard status?.isFanControlAvailable ?? true else { return false }
         guard let client = client else { return false }
         return await client.arm()
     }
@@ -101,11 +103,13 @@ final class DaemonClientObserver: NSObject, ObservableObject {
     }
 
     func setAppleAuto() async -> Bool {
+        guard status?.isFanControlAvailable ?? true else { return false }
         guard let client = client else { return false }
         return await client.setAppleAuto()
     }
 
     func setConfig(_ config: Config) async -> Bool {
+        guard status?.isFanControlAvailable ?? true else { return false }
         guard let client = client else { return false }
         return await client.setConfig(config)
     }
@@ -362,23 +366,25 @@ struct PopoverView: View {
 
                 Divider()
 
-                // Fan info
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Fans").font(.headline)
+                if status.isFanControlAvailable || !status.fans.isEmpty {
+                    // Fan info
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Fans").font(.headline)
 
-                    ForEach(status.fans, id: \.fanIndex) { fan in
-                        HStack {
-                            Text("Fan \(fan.fanIndex)")
-                                .font(.caption)
-                            Spacer()
-                            Text(String(format: "%.0f → %.0f RPM", fan.actualRPM, fan.targetRPM))
-                                .font(.caption).monospacedDigit()
+                        ForEach(status.fans, id: \.fanIndex) { fan in
+                            HStack {
+                                Text("Fan \(fan.fanIndex)")
+                                    .font(.caption)
+                                Spacer()
+                                Text(String(format: "%.0f → %.0f RPM", fan.actualRPM, fan.targetRPM))
+                                    .font(.caption).monospacedDigit()
+                            }
                         }
                     }
-                }
-                .padding(.vertical, 8)
+                    .padding(.vertical, 8)
 
-                Divider()
+                    Divider()
+                }
 
                 // Power
                 if let watts = status.packageWatts {
@@ -425,36 +431,42 @@ struct PopoverView: View {
 
                 // Controls
                 VStack(spacing: 8) {
-                    Button(action: {
-                        if status.mode == "armed" {
-                            Task {
-                                _ = await observer.disarm()
-                            }
-                        } else {
-                            showArmConfirmation = true
-                        }
-                    }) {
-                        HStack {
-                            Spacer()
-                            Text(status.mode == "armed" ? "Disarm Fan Control" : "Arm Fan Control")
-                            Spacer()
-                        }
-                    }
-                    .buttonStyle(.bordered)
-
-                    if status.mode == "armed" {
+                    if status.isFanControlAvailable {
                         Button(action: {
-                            Task {
-                                _ = await observer.setAppleAuto()
+                            if status.mode == "armed" {
+                                Task {
+                                    _ = await observer.disarm()
+                                }
+                            } else {
+                                showArmConfirmation = true
                             }
                         }) {
                             HStack {
                                 Spacer()
-                                Text("Apple Auto")
+                                Text(status.mode == "armed" ? "Disarm Fan Control" : "Arm Fan Control")
                                 Spacer()
                             }
                         }
                         .buttonStyle(.bordered)
+
+                        if status.mode == "armed" {
+                            Button(action: {
+                                Task {
+                                    _ = await observer.setAppleAuto()
+                                }
+                            }) {
+                                HStack {
+                                    Spacer()
+                                    Text("Apple Auto")
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    } else {
+                        Text("Monitor-only · no fans on this Mac")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
 
                     Button(action: {
@@ -506,6 +518,11 @@ struct PopoverView: View {
         } message: {
             Text("Fan writes will become live. Any errors will revert to Apple auto.")
         }
+        .onChange(of: observer.status?.isFanControlAvailable ?? true) { _, isAvailable in
+            if !isAvailable {
+                showArmConfirmation = false
+            }
+        }
     }
 }
 
@@ -523,19 +540,26 @@ struct MainWindowView: View {
                 }
                 .tag(0)
 
-            CurvesTabView(observer: observer)
-                .tabItem {
-                    Label("Curves", systemImage: "waveform.circle")
-                }
-                .tag(1)
+            if observer.status?.isFanControlAvailable ?? true {
+                CurvesTabView(observer: observer)
+                    .tabItem {
+                        Label("Curves", systemImage: "waveform.circle")
+                    }
+                    .tag(1)
 
-            ProfilesTabView(observer: observer)
-                .tabItem {
-                    Label("Profiles & Rules", systemImage: "slider.horizontal.3")
-                }
-                .tag(2)
+                ProfilesTabView(observer: observer)
+                    .tabItem {
+                        Label("Profiles & Rules", systemImage: "slider.horizontal.3")
+                    }
+                    .tag(2)
+            }
         }
         .frame(minWidth: 600, minHeight: 500)
+        .onChange(of: observer.status?.isFanControlAvailable ?? true) { _, isAvailable in
+            if !isAvailable {
+                selectedTab = 0
+            }
+        }
     }
 }
 
@@ -577,35 +601,37 @@ struct DashboardTabView: View {
                         }
                     }
 
-                    // Fan Status
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Fan Status")
-                            .font(.headline)
-                            .padding(.horizontal)
+                    if status.isFanControlAvailable || !status.fans.isEmpty {
+                        // Fan Status
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Fan Status")
+                                .font(.headline)
+                                .padding(.horizontal)
 
-                        ForEach(status.fans, id: \.fanIndex) { fan in
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text("Fan \(fan.fanIndex)")
-                                        .font(.body)
-                                    Text("Actual RPM")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+                            ForEach(status.fans, id: \.fanIndex) { fan in
+                                HStack {
+                                    VStack(alignment: .leading) {
+                                        Text("Fan \(fan.fanIndex)")
+                                            .font(.body)
+                                        Text("Actual RPM")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    Spacer()
+                                    VStack(alignment: .trailing) {
+                                        Text(String(format: "%.0f", fan.actualRPM))
+                                            .font(.title3)
+                                            .monospacedDigit()
+                                        Text(String(format: "Target: %.0f", fan.targetRPM))
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
                                 }
-                                Spacer()
-                                VStack(alignment: .trailing) {
-                                    Text(String(format: "%.0f", fan.actualRPM))
-                                        .font(.title3)
-                                        .monospacedDigit()
-                                    Text(String(format: "Target: %.0f", fan.targetRPM))
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
+                                .padding()
+                                .background(Color(.controlBackgroundColor))
+                                .cornerRadius(8)
+                                .padding(.horizontal)
                             }
-                            .padding()
-                            .background(Color(.controlBackgroundColor))
-                            .cornerRadius(8)
-                            .padding(.horizontal)
                         }
                     }
 
@@ -873,4 +899,9 @@ struct TelemetrySnapshot: Codable, Sendable {
     let packageWatts: Double?
     let explanations: [Explanation]
     let version: String
+    let fanControlAvailable: Bool?
+
+    var isFanControlAvailable: Bool {
+        fanControlAvailable ?? true
+    }
 }

@@ -58,6 +58,11 @@ struct TelemetrySnapshot: Codable {
     let packageWatts: Double?
     let explanations: [Explanation]
     let version: String
+    let fanControlAvailable: Bool?
+
+    var hasFanControl: Bool {
+        fanControlAvailable ?? true
+    }
 }
 
 // MARK: - XPC Client
@@ -281,7 +286,10 @@ func commandStatus(args: [String]) -> Int32 {
         } else {
             // Human-readable format
             print("Ventus Status (v\(snapshot.version))")
-            print("Mode: \(snapshot.mode)")
+            print("Mode: \(snapshot.hasFanControl ? snapshot.mode : "Monitor")")
+            if !snapshot.hasFanControl {
+                print("Fan control: unavailable (monitor-only Mac)")
+            }
             print("Active profile: \(snapshot.activeProfile)\(snapshot.activeRule.map { " (rule: \($0))" } ?? "")")
             print("Uptime: \(formatUptime(snapshot.uptime))")
             print("")
@@ -432,7 +440,7 @@ func commandArm() -> Int32 {
             print("Armed. Hardware control enabled.")
             return Int32(EXIT_SUCCESS)
         } else {
-            fputs("Error: \(result.error ?? "Unknown error")\n", stderr)
+            fputs("\(result.error ?? "Unknown error")\n", stderr)
             return Int32(EXIT_DAEMON_ERROR)
         }
     case .failure(let error):

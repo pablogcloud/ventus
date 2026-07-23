@@ -35,13 +35,16 @@ double IOHIDEventGetFloatValue(IOHIDEventRef event, int32_t field);
 typedef CFDictionaryRef IOReportSampleRef;
 typedef struct __IOReportSubscription *IOReportSubscriptionRef;
 
+CF_RETURNS_RETAINED
 CFMutableDictionaryRef IOReportCopyChannelsInGroup(CFStringRef group, CFStringRef subgroup,
                                                    uint64_t a, uint64_t b, uint64_t c);
 IOReportSubscriptionRef IOReportCreateSubscription(void *allocator, CFMutableDictionaryRef channels,
                                                    CFMutableDictionaryRef *subbedChannels,
                                                    uint64_t channelId, CFTypeRef b);
+CF_RETURNS_RETAINED
 CFDictionaryRef IOReportCreateSamples(IOReportSubscriptionRef subscription,
                                       CFMutableDictionaryRef channels, CFTypeRef a);
+CF_RETURNS_RETAINED
 CFDictionaryRef IOReportCreateSamplesDelta(CFDictionaryRef prev, CFDictionaryRef current, CFTypeRef a);
 int IOReportIterate(CFDictionaryRef samples, int (^block)(IOReportSampleRef ch));
 CFStringRef IOReportChannelGetChannelName(IOReportSampleRef ch);

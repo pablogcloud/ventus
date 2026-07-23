@@ -20,6 +20,10 @@ let package = Package(
             path: "Sources/VentusCore",
             swiftSettings: [
                 .unsafeFlags(["-suppress-warnings"], .when(configuration: .debug)),
+            ],
+            linkerSettings: [
+                .linkedFramework("IOKit"),
+                .linkedLibrary("IOReport"),
             ]
         ),
         .target(

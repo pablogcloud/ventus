@@ -17,7 +17,21 @@ LOG_DIR="/Library/Logs/Ventus"
 CONFIG_DIR="/Library/Application Support/Ventus"
 
 echo "[Ventus Uninstall] Stopping daemon..."
-launchctl bootout system "$PLIST_FILE" 2>/dev/null || echo "[Ventus Uninstall] (Daemon was not running or already removed)"
+launchctl bootout system "$PLIST_FILE" 2>/dev/null || true
+
+# Verify the daemon is actually gone before touching anything else. A masked
+# bootout failure that left the control loop running could re-force fans right
+# after we restore them, then we'd delete the only recovery binary.
+if launchctl print system/"$DAEMON_NAME" >/dev/null 2>&1; then
+    echo "[Ventus Uninstall] ERROR: daemon still registered after bootout — aborting."
+    echo "  Fans have NOT been touched and the binary is preserved. Investigate:"
+    echo "    sudo launchctl print system/$DAEMON_NAME"
+    exit 1
+fi
+if pgrep -xf "$DAEMON_BIN" >/dev/null 2>&1; then
+    echo "[Ventus Uninstall] ERROR: ventusd process still alive after bootout — aborting."
+    exit 1
+fi
 
 echo "[Ventus Uninstall] Restoring fans to auto mode..."
 # FIX #8: --restore-auto must exit nonzero on failure, so check its exit code

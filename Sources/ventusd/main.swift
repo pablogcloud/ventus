@@ -164,6 +164,28 @@ class DaemonController {
     // CRITICAL: Retain signal sources and replace their default handlers (FIX #2)
     private var sigTermSource: DispatchSourceSignal?
     private var sigIntSource: DispatchSourceSignal?
+    // Signals run on their OWN queue, never serialQueue — a stalled control loop
+    // must not block SIGTERM cleanup.
+    private let signalQueue = DispatchQueue(label: "com.formm.ventus.signals")
+
+    // Hardware ownership: `hardwareLock` guards every SMC control-write region so
+    // the control loop, watchdog, and signal handler can never interleave writes.
+    // `emergencyStop` (guarded by the same lock) latches true when watchdog/signal
+    // restores auto; once set, the control loop performs NO further writes. This
+    // closes the "watchdog restores → loop re-forces → watchdog exits" race
+    // without the watchdog ever blocking on the (possibly stalled) control queue.
+    private let hardwareLock = NSLock()
+    private var emergencyStop = false
+
+    /// Latches emergency stop and restores all fans to auto under the hardware lock.
+    /// Safe to call from any queue; idempotent.
+    private func emergencyRestore(reason: String) {
+        hardwareLock.lock()
+        emergencyStop = true
+        logMessage("[EmergencyRestore] \(reason) — restoring all fans to auto")
+        state.restoreAuto()
+        hardwareLock.unlock()
+    }
 
     init(dryRun: Bool = false) throws {
         self.dryRun = dryRun
@@ -278,7 +300,9 @@ class DaemonController {
             logMessage("[ControlLoop] SENSOR FAILURE: critical groups (cpuPerf/gpu/soc) all absent")
             if state.armed {
                 logMessage("[ControlLoop] Armed mode detected during sensor failure — restoring auto and entering observe")
+                hardwareLock.lock()
                 state.restoreAuto()
+                hardwareLock.unlock()
                 state.setArmed(false)
                 saveConfig(state.config)
             }
@@ -320,29 +344,32 @@ class DaemonController {
             thermalState: thermalState
         )
 
-        // FIX #3: All armed-state checks and SMC writes must be on serialQueue
-        // FIX #6: Thermal override must use per-fan hardware max, not curve point
-        if state.armed && safetyRPM == 0 {
-            // Normal operation: write per-fan targets (target first, then mode)
-            for explanation in explanations {
-                let targetRPM = Float(explanation.targetRPM)
-                state.smcClient?.setFanTarget(explanation.fan, rpm: targetRPM)
-                state.smcClient?.setFanMode(explanation.fan, mode: 1)  // 1 = forced (after target set)
-            }
-        } else if safetyRPM > 0 && state.armed {
-            // Thermal override: force all fans to their hardware max
-            for i in 0 ..< fanCount {
-                let hardwareMax = state.smcClient?.readFanMax(i) ?? 6800
-                state.smcClient?.setFanTarget(i, rpm: Float(hardwareMax))
-                state.smcClient?.setFanMode(i, mode: 1)
+        // All hardware writes happen under hardwareLock so the watchdog/signal
+        // handler cannot interleave. If emergencyStop latched, write nothing.
+        hardwareLock.lock()
+        if !emergencyStop && state.armed {
+            if safetyRPM > 0 {
+                // Thermal override wins unconditionally (even for curve-less
+                // profiles): force EVERY fan to its own hardware max. This is
+                // checked BEFORE the auto-apple release so an emergency is never
+                // cancelled by a curve-less active profile.
+                for i in 0 ..< fanCount {
+                    let hardwareMax = state.smcClient?.readFanMax(i) ?? 6800
+                    state.smcClient?.forceFan(i, rpm: Float(hardwareMax))
+                }
+            } else if profile.curves.isEmpty {
+                // auto-apple (no curves) and no emergency: release fans to macOS.
+                logMessage("[ControlLoop] Active profile '\(activeProfile)' has no curves — restoring fans to auto")
+                state.restoreAuto()
+            } else {
+                // Normal operation: forceFan sets target then forces mode ONLY if
+                // the target write succeeded (never forces at a stale target).
+                for explanation in explanations {
+                    state.smcClient?.forceFan(explanation.fan, rpm: Float(explanation.targetRPM))
+                }
             }
         }
-
-        // FIX #10: If profile has no curves (auto-apple), release forced mode
-        if profile.curves.isEmpty && state.armed {
-            logMessage("[ControlLoop] Active profile '\(activeProfile)' has no curves — restoring fans to auto")
-            state.restoreAuto()
-        }
+        hardwareLock.unlock()
 
         // Update state snapshot
         state.lastSensorSnapshot = sensors
@@ -375,16 +402,14 @@ class DaemonController {
             // Check control loop heartbeat
             if state.heartbeatWatchdog.isStalled(now: now) {
                 let stallTime = state.heartbeatWatchdog.secondsSinceHeartbeat(now: now)
-                logMessage("[Watchdog] CONTROL LOOP STALLED for \(String(format: "%.1f", stallTime))s — restoring auto and exiting")
-                state.restoreAuto()
+                emergencyRestore(reason: "Control loop stalled \(String(format: "%.1f", stallTime))s")
                 exit(1)
             }
 
             // Check self-CPU usage
             if state.cpuWatchdog.isHighCPU(now: now) {
                 let cpuPercent = state.cpuWatchdog.measureCPUPercent(now: now)
-                logMessage("[Watchdog] SELF-CPU HIGH (\(String(format: "%.1f", cpuPercent * 100))%) — restoring auto and exiting")
-                state.restoreAuto()
+                emergencyRestore(reason: "Self-CPU high (\(String(format: "%.1f", cpuPercent * 100))%)")
                 exit(1)
             }
         }
@@ -393,34 +418,28 @@ class DaemonController {
     // MARK: - Signal Handlers
 
     private func setupSignalHandlers() {
-        // FIX #2: Retain signal sources and replace SIG_DFL with SIG_IGN
-        let sigTermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: serialQueue)
-        let sigIntSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: serialQueue)
-
-        sigTermSource.setEventHandler { [weak self] in
-            self?.handleSignal()
-        }
-
-        sigIntSource.setEventHandler { [weak self] in
-            self?.handleSignal()
-        }
-
-        // CRITICAL: Block the default signal delivery and install only our dispatch handlers
+        // Signal sources live on signalQueue (NOT serialQueue): a stalled control
+        // loop must never delay SIGTERM cleanup. SIG_IGN is installed FIRST (in
+        // main, before the run loop) so no default-disposition window exists;
+        // re-assert here defensively.
         signal(SIGTERM, SIG_IGN)
         signal(SIGINT, SIG_IGN)
 
+        let sigTermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: signalQueue)
+        let sigIntSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: signalQueue)
+        sigTermSource.setEventHandler { [weak self] in self?.handleSignal() }
+        sigIntSource.setEventHandler { [weak self] in self?.handleSignal() }
         sigTermSource.resume()
         sigIntSource.resume()
 
-        // CRITICAL: Retain sources as properties so they are not freed
+        // Retain sources as properties so they are not freed.
         self.sigTermSource = sigTermSource
         self.sigIntSource = sigIntSource
     }
 
     private func handleSignal() {
-        logMessage("[Signal] Caught SIGTERM/SIGINT — restoring auto and exiting")
         shouldKeepRunning = false
-        state.restoreAuto()
+        emergencyRestore(reason: "Caught SIGTERM/SIGINT")
         exit(0)
     }
 
@@ -439,79 +458,80 @@ class DaemonController {
         return try? encoder.encode(state.config)
     }
 
+    /// All state-mutating XPC operations run to completion on serialQueue and
+    /// return the REAL result, so callers never receive an ack before the effect
+    /// (and see SMC failures). serialQueue.sync from the XPC queue is deadlock-free:
+    /// the control loop never blocks on the XPC queue.
     func setConfigXPC(_ configData: Data) -> XPCResult {
-        do {
-            let decoder = JSONDecoder()
-            let newConfig = try decoder.decode(Config.self, from: configData)
-            try newConfig.validate()
-
-            // Preserve armed state if already set
-            let wasArmed = state.armed
-            state.setArmed(false)  // Temporarily disarm for config update
-            state.config = newConfig
-            saveConfig(newConfig)
-            if wasArmed {
-                state.setArmed(true)  // Restore armed state if it was set
+        serialQueue.sync {
+            do {
+                let newConfig = try JSONDecoder().decode(Config.self, from: configData)
+                try newConfig.validate()
+                let wasArmed = state.armed
+                state.setArmed(false)
+                state.config = newConfig
+                saveConfig(newConfig)
+                if wasArmed { state.setArmed(true) }
+                logMessage("[XPC] Config updated via setConfig")
+                return .ok()
+            } catch {
+                let errorMsg = "Config validation failed: \(error)"
+                logMessage("[XPC] \(errorMsg)")
+                return .error(errorMsg)
             }
-
-            logMessage("[XPC] Config updated via setConfig")
-            return .ok()
-        } catch {
-            let errorMsg = "Config validation failed: \(error)"
-            logMessage("[XPC] \(errorMsg)")
-            return .error(errorMsg)
         }
     }
 
     func setProfileXPC(_ profileName: String) -> XPCResult {
-        if state.config.profiles[profileName] != nil {
+        serialQueue.sync {
+            guard state.config.profiles[profileName] != nil else {
+                let errorMsg = "Profile '\(profileName)' not found"
+                logMessage("[XPC] \(errorMsg)")
+                return .error(errorMsg)
+            }
             state.config.pinnedProfile = profileName
             saveConfig(state.config)
             logMessage("[XPC] Profile pinned to \(profileName)")
             return .ok()
-        } else {
-            let errorMsg = "Profile '\(profileName)' not found"
-            logMessage("[XPC] \(errorMsg)")
-            return .error(errorMsg)
         }
     }
 
     func armXPC() -> XPCResult {
-        // FIX #3: All armed-state mutations must be coordinated on serialQueue
-        serialQueue.async { [weak self] in
-            self?.state.setArmed(true)
-            if let config = self?.state.config {
-                saveConfig(config)
+        serialQueue.sync {
+            guard !emergencyStop else {
+                return .error("Cannot arm: daemon is in emergency-stop state")
             }
+            state.setArmed(true)
+            saveConfig(state.config)
             logMessage("[XPC] Armed mode enabled")
+            return .ok()
         }
-        return .ok()
     }
 
     func disarmXPC() -> XPCResult {
-        // FIX #3: All armed-state mutations and SMC operations on serialQueue
-        serialQueue.async { [weak self] in
-            self?.state.setArmed(false)
-            if let config = self?.state.config {
-                saveConfig(config)
-            }
-            self?.state.restoreAuto()
-            logMessage("[XPC] Disarmed mode enabled")
+        serialQueue.sync {
+            // Clear armed FIRST, then restore hardware under the lock — so no
+            // control tick can re-force between the restore and the state change.
+            state.setArmed(false)
+            hardwareLock.lock()
+            state.restoreAuto()
+            hardwareLock.unlock()
+            saveConfig(state.config)
+            logMessage("[XPC] Disarmed; fans restored to auto")
+            return .ok()
         }
-        return .ok()
     }
 
     func setAppleAutoXPC() -> XPCResult {
-        // FIX #3: Clear armed BEFORE restoring hardware (must be on serialQueue)
-        serialQueue.async { [weak self] in
-            self?.state.setArmed(false)
-            self?.state.restoreAuto()
-            if let config = self?.state.config {
-                saveConfig(config)
-            }
+        serialQueue.sync {
+            state.setArmed(false)
+            hardwareLock.lock()
+            state.restoreAuto()
+            hardwareLock.unlock()
+            saveConfig(state.config)
             logMessage("[XPC] Fans restored to Apple auto")
+            return .ok()
         }
-        return .ok()
     }
 
     private func runDryRun() {
@@ -672,21 +692,38 @@ class VentusXPCServerDelegate: NSObject, NSXPCListenerDelegate {
         self.controller = controller
     }
 
+    /// Authorized iff the peer is root, its effective gid is the admin group, or
+    /// its user is a member of the admin group. Fails closed on lookup failure.
+    static func peerIsAuthorized(uid: uid_t, gid: gid_t) -> Bool {
+        if uid == 0 { return true }
+        guard let adminGroup = getgrnam("admin") else { return false }
+        let adminGID = adminGroup.pointee.gr_gid
+        if gid == adminGID { return true }
+        // Check explicit membership list (gr_mem) for the peer's user name.
+        guard let pw = getpwuid(uid), let namePtr = pw.pointee.pw_name else { return false }
+        let peerName = String(cString: namePtr)
+        var memPtr = adminGroup.pointee.gr_mem
+        while let entry = memPtr?.pointee {
+            if String(cString: entry) == peerName { return true }
+            memPtr = memPtr?.advanced(by: 1)
+        }
+        // Also honor the user's primary gid being admin.
+        return pw.pointee.pw_gid == adminGID
+    }
+
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
         logMessage("[XPC] New connection attempt")
 
-        // FIX #4: Check peer credentials — accept only if running as root or admin group member
-        // For simplicity, we check if the daemon is running as root (standard case).
-        // In production, add codesign entitlement checks via SecTask.
-        let currentUID = getuid()
-        let isAuthorized = (currentUID == 0)
-
-        if !isAuthorized {
-            logMessage("[XPC] REJECTED connection (daemon not running as root)")
+        // Authorize the CONNECTING PEER, not the daemon. effectiveUserIdentifier
+        // is the peer's euid as seen by the kernel; getuid() here would be the
+        // daemon's own (root) and authorize everyone.
+        let peerUID = newConnection.effectiveUserIdentifier
+        let peerGID = newConnection.effectiveGroupIdentifier
+        if !Self.peerIsAuthorized(uid: peerUID, gid: peerGID) {
+            logMessage("[XPC] REJECTED connection from uid=\(peerUID) gid=\(peerGID) (not root/admin)")
             return false
         }
-
-        logMessage("[XPC] ACCEPTED connection from authorized peer")
+        logMessage("[XPC] ACCEPTED connection from uid=\(peerUID)")
 
         let exportedObject = VentusXPCServiceImpl(controller: controller)
         newConnection.exportedInterface = NSXPCInterface(with: VentusXPCProtocol.self)
@@ -799,38 +836,46 @@ class VentusXPCServiceImpl: NSObject, VentusXPCProtocol {
 
 // MARK: - Entry Point
 
+// Install SIG_IGN before ANY other work so there is never a window where the
+// default (terminate-without-cleanup) disposition is active. The dispatch
+// sources set up later are the sole delivery path.
+signal(SIGTERM, SIG_IGN)
+signal(SIGINT, SIG_IGN)
+
 let arguments = CommandLine.arguments
 let dryRun = arguments.contains("--dry-run")
-let restoreAuto = arguments.contains("--restore-auto")
+let restoreAutoFlag = arguments.contains("--restore-auto")
 
-if restoreAuto {
+if restoreAutoFlag {
     logMessage("[Main] Restore-auto oneshot mode")
-    // FIX #8: --restore-auto must exit nonzero on failure
-    if let smc = SMCClient(logger: logMessage) {
-        let fanCount = smc.listFanCount()
-        var restoreFailed = false
-        for i in 0 ..< fanCount {
-            smc.setFanMode(i, mode: 0)
-        }
-
-        // Verify restore by reading FxMd
-        for i in 0 ..< fanCount {
-            if let mode = smc.readFanMode(i), mode != 0 {
-                logMessage("[Main] VERIFY FAILED: F\(i)Md is \(mode), expected 0")
-                restoreFailed = true
-            }
-        }
-
-        if restoreFailed {
-            logMessage("[Main] Fan restore verification failed")
-            exit(1)
-        }
-        logMessage("[Main] Restored all fans to auto mode (verified)")
-        exit(0)
-    } else {
-        logMessage("[Main] FAILED: Cannot open SMC connection")
+    guard let smc = SMCClient(logger: logMessage) else {
+        logMessage("[Main] FAILED: cannot open SMC connection — fans may still be forced")
         exit(1)
     }
+    // FNum can be unreadable; fall back to probing a fixed range. We must not
+    // "succeed" having written nothing (the old bug that let uninstall delete
+    // the daemon with fans still forced).
+    let reported = smc.listFanCount()
+    let fanRange = reported > 0 ? 0 ..< reported : 0 ..< 8
+    var verifiedRestored = 0
+    var anyFailure = false
+    for i in fanRange {
+        // A fan "exists" if we can read its mode at all.
+        guard smc.readFanMode(i) != nil else { continue }
+        smc.setFanMode(i, mode: 0)
+        if let mode = smc.readFanMode(i), mode == 0 {
+            verifiedRestored += 1
+        } else {
+            logMessage("[Main] VERIFY FAILED: F\(i)Md not 0 after restore")
+            anyFailure = true
+        }
+    }
+    if anyFailure || verifiedRestored == 0 {
+        logMessage("[Main] Restore failed (verified=\(verifiedRestored), failure=\(anyFailure))")
+        exit(1)
+    }
+    logMessage("[Main] Restored \(verifiedRestored) fan(s) to auto (verified)")
+    exit(0)
 }
 
 logMessage("[Main] Starting with dryRun: \(dryRun)")

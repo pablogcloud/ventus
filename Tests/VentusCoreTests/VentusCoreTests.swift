@@ -191,6 +191,35 @@ final class VentusCoreTests: XCTestCase {
 
     // MARK: - EMA Smoothing (1 test)
 
+    func testAbsentSensorGroups_NotFabricatedAsZero() {
+        // Regression (audit finding 7): a fan mixed on a partially-absent sensor
+        // group must be driven by the remaining present groups (renormalized),
+        // never dragged toward 0°C by fabricated readings.
+        let engine = CurveEngine()
+        let profile = Profile(
+            name: "test",
+            curves: [0: FanCurve(inputMix: [.cpuPerf: 0.5, .gpu: 0.5], points: [CurvePoint(temp: 40, rpm: 2000), CurvePoint(temp: 80, rpm: 6000)])],
+            powerCurve: nil,
+            emaTimeConstantS: 0,
+            hysteresisGapC: 0,
+            hysteresisDwellS: 0
+        )
+
+        // gpu group absent entirely; cpuPerf hot at 80°C
+        var sensors: [SensorGroup: GroupReading] = [:]
+        sensors[.cpuPerf] = GroupReading(max: 80, mean: 80, count: 1)
+
+        var actualRPMs: [Int: Double] = [0: 2000]
+        let now = Date()
+        var results: [CurveEngine.Explanation] = []
+        for tick in 0 ..< 20 {
+            results = engine.compute(sensors: sensors, profile: profile, actualRPMs: actualRPMs, now: now.addingTimeInterval(Double(tick)))
+            actualRPMs[0] = results[0].targetRPM
+        }
+        // Renormalized blend = 80°C (not 40°C avg with fabricated 0) → full 6000 RPM
+        XCTAssertEqual(results[0].targetRPM, 6000, accuracy: 1.0)
+    }
+
     func testEMA_Convergence() {
         let engine = CurveEngine()
         let profile = Profile(

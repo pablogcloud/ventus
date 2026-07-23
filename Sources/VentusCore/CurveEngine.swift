@@ -60,7 +60,7 @@ public final class CurveEngine {
         }
         lastComputeTime = now
 
-        // Step 1: Update EMA for each sensor group
+        // Step 1: Update EMA for each sensor group (only groups actually present)
         let smoothedSensors = updateEMA(sensors: sensors, now: now, tau: profile.emaTimeConstantS)
 
         // Step 2: For each fan, compute temperature curve output
@@ -152,10 +152,13 @@ public final class CurveEngine {
     // MARK: - Private Helpers
 
     /// Updates EMA for each sensor group.
+    /// FIX #7: Only update and return entries for groups actually present in input.
+    /// Do NOT fabricate 0-value entries for absent groups.
     private func updateEMA(sensors: [SensorGroup: GroupReading], now: Date, tau: Double) -> [SensorGroup: Double] {
         var result: [SensorGroup: Double] = [:]
 
-        for group in SensorGroup.allCases {
+        // Only process groups that are present in the current snapshot
+        for group in sensors.keys {
             let newReading = sensors[group]?.mean ?? 0
 
             if let (oldValue, lastTime) = emaState[group] {
@@ -174,15 +177,25 @@ public final class CurveEngine {
     }
 
     /// Blends multiple sensor group readings using the input mix weights.
+    /// Returns 0 if mix is empty or no sensors matched; does NOT fabricate missing groups.
     private func blendInputs(_ mix: [SensorGroup: Double], smoothedSensors: [SensorGroup: Double]) -> Double {
         let mixSum = mix.values.reduce(0, +)
         guard mixSum > 0 else { return 0 }
 
-        let weighted = mix.map { (group, weight) in
-            (smoothedSensors[group] ?? 0) * weight
-        }.reduce(0, +)
+        // Only blend groups that are actually present in smoothedSensors
+        var weighted = 0.0
+        var appliedWeight = 0.0
+        for (group, weight) in mix {
+            if let sensorValue = smoothedSensors[group] {
+                weighted += sensorValue * weight
+                appliedWeight += weight
+            }
+        }
 
-        return weighted / mixSum
+        // If no requested groups were present, return 0 (not a blended average of missing data)
+        guard appliedWeight > 0 else { return 0 }
+
+        return weighted / appliedWeight
     }
 
     /// Piecewise-linear interpolation on a temperature curve.

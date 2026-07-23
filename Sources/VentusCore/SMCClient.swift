@@ -15,7 +15,7 @@ import CVentusPrivate
 /// are `flt ` (LE float); fpe2/ui8/ui16/ui32/sp78 supported for portability.
 ///
 /// ALL writes flow through `checkedWrite` — the single audited choke point,
-/// which refuses fan targets outside the hardware [min, max] envelope.
+/// which clamps fan targets to the hardware [min, max] envelope.
 public final class SMCClient: @unchecked Sendable {
     private let logger: (String) -> Void
     private let queue = DispatchQueue(label: "com.formm.ventus.smc")
@@ -161,13 +161,20 @@ public final class SMCClient: @unchecked Sendable {
     }
 
     /// Single audited write choke point. On `queue`. Never bypass.
+    /// Clamps value into the allowed range (or skips write if range unavailable).
     private func checkedWrite(_ key: String, value: Double, allowedRange: ClosedRange<Double>?) {
-        if let range = allowedRange, !range.contains(value) {
-            logger("[SMCClient] REFUSED write \(key)=\(value): outside \(range)")
-            return
+        let clampedValue: Double
+        if let range = allowedRange {
+            clampedValue = max(range.lowerBound, min(range.upperBound, value))
+            if clampedValue != value {
+                logger("[SMCClient] Clamped \(key): \(value) → \(clampedValue) (range: \(range.lowerBound)–\(range.upperBound))")
+            }
+        } else {
+            clampedValue = value
         }
+
         guard let keyCode = Self.fourCC(key), let info = keyInfo(keyCode),
-              let bytes = encode(value, as: info) else {
+              let bytes = encode(clampedValue, as: info) else {
             logger("[SMCClient] write \(key): no key info / unsupported type")
             return
         }
@@ -179,7 +186,7 @@ public final class SMCClient: @unchecked Sendable {
             for (i, b) in bytes.enumerated() where i < 32 { raw[i] = b }
         }
         if call(&input) != nil {
-            logger("[SMCClient] wrote \(key)=\(value)")
+            logger("[SMCClient] wrote \(key)=\(clampedValue)")
         }
     }
 
@@ -224,6 +231,16 @@ public final class SMCClient: @unchecked Sendable {
     public func readFanMin(_ fan: Int) -> Float? { readFanKey(fan, "Mn") }
     public func readFanMax(_ fan: Int) -> Float? { readFanKey(fan, "Mx") }
 
+    /// Reads fan mode: 0 = auto (macOS controls), 1 = forced (we control).
+    public func readFanMode(_ fan: Int) -> UInt8? {
+        guard fan >= 0 && fan < 16 else { return nil }
+        return queue.sync {
+            guard let (info, bytes) = readBytes("F\(fan)Md"),
+                  let v = decode(info, bytes) else { return nil }
+            return UInt8(v)
+        }
+    }
+
     /// Fan mode: 0 = auto (macOS controls), 1 = forced (we control).
     public func setFanMode(_ fan: Int, mode: UInt8) {
         guard fan >= 0 && fan < 16, mode <= 1 else { return }
@@ -234,6 +251,7 @@ public final class SMCClient: @unchecked Sendable {
 
     /// Sets a fan target RPM, clamped to the hardware [min, max] envelope.
     /// Refuses entirely if the envelope can't be read (never write blind).
+    /// FIX #5: Clamp instead of reject; write target FIRST, then mode.
     public func setFanTarget(_ fan: Int, rpm: Float) {
         guard fan >= 0 && fan < 16 else { return }
         queue.sync {
@@ -243,7 +261,13 @@ public final class SMCClient: @unchecked Sendable {
                 logger("[SMCClient] REFUSED F\(fan)Tg: cannot read min/max envelope")
                 return
             }
-            checkedWrite("F\(fan)Tg", value: Double(rpm), allowedRange: minV ... maxV)
+            // Clamp the RPM into [min, max]
+            let clampedRPM = max(minV, min(maxV, Double(rpm)))
+            if clampedRPM != Double(rpm) {
+                logger("[SMCClient] F\(fan)Tg clamped: \(rpm) → \(clampedRPM)")
+            }
+            // Write target first, then mode (so forced fan always has valid target)
+            checkedWrite("F\(fan)Tg", value: clampedRPM, allowedRange: nil)
         }
     }
 }

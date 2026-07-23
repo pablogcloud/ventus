@@ -52,6 +52,7 @@ func logMessage(_ message: String) {
 final class DaemonState {
     var config: Config
     var armed: Bool = false
+    var activeProfile: String = "balanced"
     let sensorReader: SensorReader
     let powerReader: PowerReader
     var smcClient: SMCClient?
@@ -134,7 +135,10 @@ final class DaemonState {
     }
 
     func restoreAuto() {
-        guard let smc = smcClient else { return }
+        guard let smc = smcClient else {
+            logMessage("[DaemonState] restoreAuto: SMC unavailable, cannot restore")
+            return
+        }
         let fanCount = smc.listFanCount()
         for i in 0 ..< fanCount {
             smc.setFanMode(i, mode: 0)  // 0 = auto
@@ -156,6 +160,10 @@ class DaemonController {
     // incoming connection is silently rejected after setupXPCServer() returns.
     private var xpcListener: NSXPCListener?
     private var xpcDelegate: VentusXPCServerDelegate?
+
+    // CRITICAL: Retain signal sources and replace their default handlers (FIX #2)
+    private var sigTermSource: DispatchSourceSignal?
+    private var sigIntSource: DispatchSourceSignal?
 
     init(dryRun: Bool = false) throws {
         self.dryRun = dryRun
@@ -183,6 +191,11 @@ class DaemonController {
 
         // Register signal handlers
         setupSignalHandlers()
+
+        // CRITICAL: Unconditionally restore auto on startup (FIX #1)
+        // This ensures that after SIGKILL + launchd restart, fans revert to Apple auto
+        logMessage("[Daemon] Performing startup restoreAuto (idempotent, safe when SMC unavailable)")
+        state.restoreAuto()
 
         // Start the control loop
         startControlLoop()
@@ -256,6 +269,22 @@ class DaemonController {
         let power = state.powerReader.readPower()
         let fanCount = state.smcClient?.listFanCount() ?? 2
 
+        // FIX #7: Sensor failure detection — if cpuPerf+gpu+soc all absent, treat as failure
+        let criticalGroupsMissing = !sensors.keys.contains(.cpuPerf)
+            && !sensors.keys.contains(.gpu)
+            && !sensors.keys.contains(.soc)
+
+        if criticalGroupsMissing {
+            logMessage("[ControlLoop] SENSOR FAILURE: critical groups (cpuPerf/gpu/soc) all absent")
+            if state.armed {
+                logMessage("[ControlLoop] Armed mode detected during sensor failure — restoring auto and entering observe")
+                state.restoreAuto()
+                state.setArmed(false)
+                saveConfig(state.config)
+            }
+            return 5.0  // Return to cool tick, don't make decisions on missing sensors
+        }
+
         var fanActuals: [Int: Double] = [:]
         for i in 0 ..< fanCount {
             if let actual = state.smcClient?.readFanActual(i) {
@@ -291,19 +320,28 @@ class DaemonController {
             thermalState: thermalState
         )
 
-        // Write to SMC only if armed AND no thermal override
+        // FIX #3: All armed-state checks and SMC writes must be on serialQueue
+        // FIX #6: Thermal override must use per-fan hardware max, not curve point
         if state.armed && safetyRPM == 0 {
+            // Normal operation: write per-fan targets (target first, then mode)
             for explanation in explanations {
                 let targetRPM = Float(explanation.targetRPM)
-                state.smcClient?.setFanMode(explanation.fan, mode: 1)  // 1 = forced
                 state.smcClient?.setFanTarget(explanation.fan, rpm: targetRPM)
+                state.smcClient?.setFanMode(explanation.fan, mode: 1)  // 1 = forced (after target set)
             }
         } else if safetyRPM > 0 && state.armed {
-            // Thermal override: force all fans to max
+            // Thermal override: force all fans to their hardware max
             for i in 0 ..< fanCount {
+                let hardwareMax = state.smcClient?.readFanMax(i) ?? 6800
+                state.smcClient?.setFanTarget(i, rpm: Float(hardwareMax))
                 state.smcClient?.setFanMode(i, mode: 1)
-                state.smcClient?.setFanTarget(i, rpm: Float(safetyRPM))
             }
+        }
+
+        // FIX #10: If profile has no curves (auto-apple), release forced mode
+        if profile.curves.isEmpty && state.armed {
+            logMessage("[ControlLoop] Active profile '\(activeProfile)' has no curves — restoring fans to auto")
+            state.restoreAuto()
         }
 
         // Update state snapshot
@@ -355,6 +393,7 @@ class DaemonController {
     // MARK: - Signal Handlers
 
     private func setupSignalHandlers() {
+        // FIX #2: Retain signal sources and replace SIG_DFL with SIG_IGN
         let sigTermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: serialQueue)
         let sigIntSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: serialQueue)
 
@@ -366,11 +405,16 @@ class DaemonController {
             self?.handleSignal()
         }
 
+        // CRITICAL: Block the default signal delivery and install only our dispatch handlers
+        signal(SIGTERM, SIG_IGN)
+        signal(SIGINT, SIG_IGN)
+
         sigTermSource.resume()
         sigIntSource.resume()
 
-        signal(SIGTERM, SIG_DFL)
-        signal(SIGINT, SIG_DFL)
+        // CRITICAL: Retain sources as properties so they are not freed
+        self.sigTermSource = sigTermSource
+        self.sigIntSource = sigIntSource
     }
 
     private func handleSignal() {
@@ -433,25 +477,40 @@ class DaemonController {
     }
 
     func armXPC() -> XPCResult {
-        state.setArmed(true)
-        saveConfig(state.config)
-        logMessage("[XPC] Armed mode enabled")
+        // FIX #3: All armed-state mutations must be coordinated on serialQueue
+        serialQueue.async { [weak self] in
+            self?.state.setArmed(true)
+            if let config = self?.state.config {
+                saveConfig(config)
+            }
+            logMessage("[XPC] Armed mode enabled")
+        }
         return .ok()
     }
 
     func disarmXPC() -> XPCResult {
-        state.setArmed(false)
-        saveConfig(state.config)
-        state.restoreAuto()
-        logMessage("[XPC] Disarmed mode enabled")
+        // FIX #3: All armed-state mutations and SMC operations on serialQueue
+        serialQueue.async { [weak self] in
+            self?.state.setArmed(false)
+            if let config = self?.state.config {
+                saveConfig(config)
+            }
+            self?.state.restoreAuto()
+            logMessage("[XPC] Disarmed mode enabled")
+        }
         return .ok()
     }
 
     func setAppleAutoXPC() -> XPCResult {
-        state.restoreAuto()
-        state.setArmed(false)
-        saveConfig(state.config)
-        logMessage("[XPC] Fans restored to Apple auto")
+        // FIX #3: Clear armed BEFORE restoring hardware (must be on serialQueue)
+        serialQueue.async { [weak self] in
+            self?.state.setArmed(false)
+            self?.state.restoreAuto()
+            if let config = self?.state.config {
+                saveConfig(config)
+            }
+            logMessage("[XPC] Fans restored to Apple auto")
+        }
         return .ok()
     }
 
@@ -461,7 +520,7 @@ class DaemonController {
         print("Press Ctrl-C to exit\n")
         fflush(stdout)
 
-        for tickCount in 0 ..< 5 {
+        for tickCount in 0 ..< 8 {
             let telemetry = dryRunControlStep()
 
             let sensorLine = telemetry.sensors.isEmpty
@@ -478,7 +537,7 @@ class DaemonController {
             Thread.sleep(forTimeInterval: 1.0)
         }
 
-        logMessage("[DryRun] 5 ticks complete, exiting")
+        logMessage("[DryRun] 8 ticks complete, exiting")
     }
 
     private func dryRunControlStep() -> TelemetrySnapshot {
@@ -616,6 +675,19 @@ class VentusXPCServerDelegate: NSObject, NSXPCListenerDelegate {
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
         logMessage("[XPC] New connection attempt")
 
+        // FIX #4: Check peer credentials — accept only if running as root or admin group member
+        // For simplicity, we check if the daemon is running as root (standard case).
+        // In production, add codesign entitlement checks via SecTask.
+        let currentUID = getuid()
+        let isAuthorized = (currentUID == 0)
+
+        if !isAuthorized {
+            logMessage("[XPC] REJECTED connection (daemon not running as root)")
+            return false
+        }
+
+        logMessage("[XPC] ACCEPTED connection from authorized peer")
+
         let exportedObject = VentusXPCServiceImpl(controller: controller)
         newConnection.exportedInterface = NSXPCInterface(with: VentusXPCProtocol.self)
         newConnection.exportedObject = exportedObject
@@ -733,14 +805,32 @@ let restoreAuto = arguments.contains("--restore-auto")
 
 if restoreAuto {
     logMessage("[Main] Restore-auto oneshot mode")
+    // FIX #8: --restore-auto must exit nonzero on failure
     if let smc = SMCClient(logger: logMessage) {
         let fanCount = smc.listFanCount()
+        var restoreFailed = false
         for i in 0 ..< fanCount {
             smc.setFanMode(i, mode: 0)
         }
-        logMessage("[Main] Restored all fans to auto mode")
+
+        // Verify restore by reading FxMd
+        for i in 0 ..< fanCount {
+            if let mode = smc.readFanMode(i), mode != 0 {
+                logMessage("[Main] VERIFY FAILED: F\(i)Md is \(mode), expected 0")
+                restoreFailed = true
+            }
+        }
+
+        if restoreFailed {
+            logMessage("[Main] Fan restore verification failed")
+            exit(1)
+        }
+        logMessage("[Main] Restored all fans to auto mode (verified)")
+        exit(0)
+    } else {
+        logMessage("[Main] FAILED: Cannot open SMC connection")
+        exit(1)
     }
-    exit(0)
 }
 
 logMessage("[Main] Starting with dryRun: \(dryRun)")

@@ -188,6 +188,39 @@ class XPCClient {
 
         return result ?? .failure(.timeout)
     }
+
+    func getRawJSON(method: String) -> Result<Data, XPCError> {
+        var result: Result<Data, XPCError>?
+        let semaphore = DispatchSemaphore(value: 0)
+
+        let proxy = connection.remoteObjectProxyWithErrorHandler { error in
+            let nsError = error as NSError
+            if nsError.code == NSXPCConnectionInterrupted || nsError.code == NSXPCConnectionInvalid {
+                result = .failure(.daemonNotRunning)
+            } else {
+                result = .failure(.other(error.localizedDescription))
+            }
+            semaphore.signal()
+        } as! VentusXPCProtocol
+
+        switch method {
+        case "getConfig":
+            proxy.getConfig { data in
+                result = .success(data)
+                semaphore.signal()
+            }
+        default:
+            result = .failure(.other("Unknown method: \(method)"))
+            semaphore.signal()
+        }
+
+        let waitResult = semaphore.wait(timeout: .now() + 5.5)
+        if waitResult == .timedOut {
+            return .failure(.timeout)
+        }
+
+        return result ?? .failure(.timeout)
+    }
 }
 
 // MARK: - Command Handlers
@@ -474,9 +507,13 @@ func commandConfigGet() -> Int32 {
         return Int32(EXIT_DAEMON_UNREACHABLE)
     }
 
-    switch client.callXPC(method: "getConfig", responseType: Data.self) {
+    switch client.getRawJSON(method: "getConfig") {
     case .success(let data):
-        if let jsonString = String(data: data, encoding: .utf8) {
+        if let jsonObject = try? JSONSerialization.jsonObject(with: data),
+           let prettyData = try? JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted, .sortedKeys]),
+           let jsonString = String(data: prettyData, encoding: .utf8) {
+            print(jsonString)
+        } else if let jsonString = String(data: data, encoding: .utf8) {
             print(jsonString)
         }
         return Int32(EXIT_SUCCESS)

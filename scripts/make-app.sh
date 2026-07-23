@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # Ventus.app Build Script
 # Builds swift build -c release, assembles the bundle, ad-hoc signs, outputs to build/Ventus.app
@@ -16,7 +16,7 @@ rm -rf "${APP_DIR}"
 
 echo "[make-app.sh] Building VentusApp binary..."
 cd "${PROJECT_DIR}"
-swift build -c release 2>&1 | grep -v "warning:" || true
+swift build -c release
 
 # Locate the built binary
 BINARY_PATH="${PROJECT_DIR}/.build/release/VentusApp"
@@ -66,7 +66,7 @@ cat > "${CONTENTS_DIR}/Info.plist" << 'EOF'
 EOF
 
 echo "[make-app.sh] Ad-hoc code signing..."
-codesign --force --deep -s - "${APP_DIR}" 2>&1 || true
+codesign --force --deep -s - "${APP_DIR}"
 
 echo "[make-app.sh] Created ${APP_DIR}"
 ls -lh "${APP_DIR}"

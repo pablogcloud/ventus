@@ -81,6 +81,10 @@ final class DaemonClientObserver: NSObject, ObservableObject {
         self.isConnected = connected
     }
 
+    func clearStatus() {
+        self.status = nil
+    }
+
     func setProfile(_ profileName: String) async -> Bool {
         guard let client = client else { return false }
         return await client.setProfile(profileName)
@@ -158,7 +162,10 @@ actor DaemonClient {
     }
 
     private func handleDisconnection() async {
-        updateObserver { $0.setConnected(false) }
+        updateObserver { observer in
+            observer.setConnected(false)
+            observer.clearStatus()
+        }
 
         reconnectAttempts += 1
         guard reconnectAttempts < maxReconnectAttempts else {
@@ -419,7 +426,13 @@ struct PopoverView: View {
                 // Controls
                 VStack(spacing: 8) {
                     Button(action: {
-                        showArmConfirmation = true
+                        if status.mode == "armed" {
+                            Task {
+                                _ = await observer.disarm()
+                            }
+                        } else {
+                            showArmConfirmation = true
+                        }
                     }) {
                         HStack {
                             Spacer()
@@ -650,14 +663,12 @@ struct CurvesTabView: View {
 
                         let activeProfile = config.pinnedProfile ?? "balanced"
                         if let profile = config.profiles[activeProfile] {
-
                             ForEach(Array(profile.curves.sorted { $0.key < $1.key }), id: \.key) { fanIndex, curve in
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text("Fan \(fanIndex) Curve")
                                         .font(.subheadline)
                                         .padding(.horizontal)
 
-                                    // Simple curve visualization
                                     Canvas { context, size in
                                         let width: CGFloat = size.width
                                         let height: CGFloat = size.height
@@ -666,7 +677,6 @@ struct CurvesTabView: View {
                                         let minRPM = 0.0
                                         let maxRPM = 7000.0
 
-                                        // Draw grid
                                         var path = Path()
                                         for i in stride(from: minTemp, to: maxTemp + 1, by: 20) {
                                             let x = (i - minTemp) / (maxTemp - minTemp) * width
@@ -675,7 +685,6 @@ struct CurvesTabView: View {
                                         }
                                         context.stroke(path, with: .color(.gray.opacity(0.2)), lineWidth: 0.5)
 
-                                        // Draw curve
                                         var curvePath = Path()
                                         for (i, point) in curve.points.enumerated() {
                                             let x = (point.temp - minTemp) / (maxTemp - minTemp) * width
@@ -689,7 +698,6 @@ struct CurvesTabView: View {
                                         }
                                         context.stroke(curvePath, with: .color(.blue), lineWidth: 2)
 
-                                        // Draw points
                                         for point in curve.points {
                                             let x = (point.temp - minTemp) / (maxTemp - minTemp) * width
                                             let y = height - (point.rpm - minRPM) / (maxRPM - minRPM) * height
@@ -704,7 +712,6 @@ struct CurvesTabView: View {
                                     .background(Color(.controlBackgroundColor))
                                     .cornerRadius(8)
 
-                                    // Points list
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text("Control Points")
                                             .font(.caption)

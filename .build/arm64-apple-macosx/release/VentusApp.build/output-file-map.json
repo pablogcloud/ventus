@@ -1,0 +1,13 @@
+{
+  "": {
+    "dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusApp.d",
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusApp.o",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/primary.swiftdeps"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusApp/main.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/main.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/main~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/main.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/main.dia"
+  }
+}

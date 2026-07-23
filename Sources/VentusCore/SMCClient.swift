@@ -3,12 +3,12 @@ import IOKit
 
 /// Accesses fan control and temperature keys via the AppleSMC IOKit user client.
 /// Thread-safe; all operations dispatch to an internal serial queue.
-final class SMCClient: Sendable {
+public final class SMCClient: Sendable {
     private let queue = DispatchQueue(label: "com.formm.ventus.smcclient", attributes: .initiallyInactive)
     private let connection: io_connect_t
     private let logger: (String) -> Void
 
-    struct SMCParamStruct {
+    public struct SMCParamStruct {
         var key: (UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0)
         var vers: (UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0)
         var plen: UInt32 = 0
@@ -18,19 +18,19 @@ final class SMCClient: Sendable {
                    UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                    UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 
-        mutating func setKey(_ k: String) {
+        public mutating func setKey(_ k: String) {
             let bytes = Array(k.utf8)
             if bytes.count >= 4 {
                 key = (bytes[0], bytes[1], bytes[2], bytes[3])
             }
         }
 
-        func getKey() -> String {
+        public func getKey() -> String {
             let bytes = [key.0, key.1, key.2, key.3]
             return String(bytes: bytes, encoding: .utf8) ?? ""
         }
 
-        mutating func setData(_ d: [UInt8]) {
+        public mutating func setData(_ d: [UInt8]) {
             dlen = UInt32(d.count)
             for (i, byte) in d.enumerated() where i < 32 {
                 switch i {
@@ -71,7 +71,7 @@ final class SMCClient: Sendable {
             }
         }
 
-        func getData() -> [UInt8] {
+        public func getData() -> [UInt8] {
             let bytes = [data.0, data.1, data.2, data.3, data.4, data.5, data.6, data.7,
                         data.8, data.9, data.10, data.11, data.12, data.13, data.14, data.15,
                         data.16, data.17, data.18, data.19, data.20, data.21, data.22, data.23,
@@ -81,7 +81,7 @@ final class SMCClient: Sendable {
     }
 
     /// Initializes an SMC client. Returns nil if the AppleSMC IOService is not found or connection fails.
-    init?(logger: @escaping (String) -> Void = { _ in }) {
+    public init?(logger: @escaping (String) -> Void = { _ in }) {
         self.logger = logger
 
         let matching = IOServiceMatching("AppleSMC")
@@ -135,7 +135,7 @@ final class SMCClient: Sendable {
 
     /// Reads an SMC key and decodes it based on the type field.
     /// Supports: flt (float), ui8, ui16, ui32, fpe2, sp78.
-    func readKey(_ key: String) -> Any? {
+    public func readKey(_ key: String) -> Any? {
         var result: Any?
         queue.sync {
             var param = SMCParamStruct()
@@ -166,7 +166,7 @@ final class SMCClient: Sendable {
     }
 
     /// Writes an SMC key with UInt8 value.
-    func writeKey(_ key: String, value: UInt8) {
+    public func writeKey(_ key: String, value: UInt8) {
         queue.sync {
             var param = SMCParamStruct()
             param.setKey(key)
@@ -177,7 +177,7 @@ final class SMCClient: Sendable {
     }
 
     /// Writes an SMC key with Float value (4-byte IEEE).
-    func writeKey(_ key: String, value: Float) {
+    public func writeKey(_ key: String, value: Float) {
         queue.sync {
             var param = SMCParamStruct()
             param.setKey(key)
@@ -194,49 +194,49 @@ final class SMCClient: Sendable {
     }
 
     /// Reads the count of fans available.
-    func listFanCount() -> Int {
+    public func listFanCount() -> Int {
         let countKey = "FNum"
         guard let count = readKey(countKey) as? UInt8 else { return 0 }
         return Int(count)
     }
 
     /// Reads actual RPM for a fan (F0Ac, F1Ac, etc.)
-    func readFanActual(_ fan: Int) -> Float? {
+    public func readFanActual(_ fan: Int) -> Float? {
         guard fan >= 0 && fan < 16 else { return nil }
         let key = "F\(fan)Ac"
         return readKey(key) as? Float
     }
 
     /// Reads target RPM for a fan.
-    func readFanTarget(_ fan: Int) -> Float? {
+    public func readFanTarget(_ fan: Int) -> Float? {
         guard fan >= 0 && fan < 16 else { return nil }
         let key = "F\(fan)Tg"
         return readKey(key) as? Float
     }
 
     /// Reads minimum RPM for a fan.
-    func readFanMin(_ fan: Int) -> Float? {
+    public func readFanMin(_ fan: Int) -> Float? {
         guard fan >= 0 && fan < 16 else { return nil }
         let key = "F\(fan)Mn"
         return readKey(key) as? Float
     }
 
     /// Reads maximum RPM for a fan.
-    func readFanMax(_ fan: Int) -> Float? {
+    public func readFanMax(_ fan: Int) -> Float? {
         guard fan >= 0 && fan < 16 else { return nil }
         let key = "F\(fan)Mx"
         return readKey(key) as? Float
     }
 
     /// Sets fan mode (0 = auto, 1 = forced).
-    func setFanMode(_ fan: Int, mode: UInt8) {
+    public func setFanMode(_ fan: Int, mode: UInt8) {
         guard fan >= 0 && fan < 16 else { return }
         let key = "F\(fan)Md"
         writeKey(key, value: mode)
     }
 
     /// Sets target RPM for a fan (enforces that it is within [min, max]).
-    func setFanTarget(_ fan: Int, rpm: Float) {
+    public func setFanTarget(_ fan: Int, rpm: Float) {
         guard fan >= 0 && fan < 16 else { return }
         guard let minRPM = readFanMin(fan), let maxRPM = readFanMax(fan) else { return }
         let clamped = Swift.max(minRPM, Swift.min(maxRPM, rpm))

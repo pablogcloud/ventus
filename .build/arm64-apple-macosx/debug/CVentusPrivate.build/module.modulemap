@@ -1,0 +1,4 @@
+module CVentusPrivate {
+    umbrella header "/Users/pablo/Projects/ventus/Sources/CVentusPrivate/include/CVentusPrivate.h"
+    export *
+}

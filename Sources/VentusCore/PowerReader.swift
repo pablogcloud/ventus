@@ -2,17 +2,17 @@ import Foundation
 
 /// Reads package power consumption (CPU, GPU, ANE in watts) via IOReport.
 /// Returns nil if IOReport is unavailable (graceful degradation).
-final class PowerReader: Sendable {
+public final class PowerReader: Sendable {
     private let logger: (String) -> Void
     private let queue = DispatchQueue(label: "com.formm.ventus.powerreader", attributes: .initiallyInactive)
 
-    struct PowerReading: Equatable, Codable {
+public struct PowerReading: Equatable, Codable {
         let cpuW: Double?
         let gpuW: Double?
         let aneW: Double?
         let timestamp: Date
 
-        var totalW: Double {
+        public var totalW: Double {
             let cpu = cpuW ?? 0
             let gpu = gpuW ?? 0
             let ane = aneW ?? 0
@@ -23,14 +23,14 @@ final class PowerReader: Sendable {
     private var lastReading: PowerReading?
     private var lastReadTime: Date?
 
-    init(logger: @escaping (String) -> Void = { _ in }) {
+    public init(logger: @escaping (String) -> Void = { _ in }) {
         self.logger = logger
         queue.activate()
     }
 
     /// Reads current power consumption (best-effort via IOReport or SMC fallback).
     /// Returns nil if neither method works.
-    func readPower() -> PowerReading? {
+    public func readPower() -> PowerReading? {
         var result: PowerReading?
         queue.sync {
             result = readPowerFromIOReport()

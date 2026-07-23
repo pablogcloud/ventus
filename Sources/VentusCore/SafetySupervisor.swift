@@ -2,7 +2,7 @@ import Foundation
 
 /// Safety state machine that sits above the curve engine.
 /// Enforces hard override, observe/armed gating, and watchdogs.
-final class SafetySupervisor: Sendable {
+public final class SafetySupervisor: Sendable {
     /// Thermal emergency: any sensor ≥95°C or thermal state critical.
     private let thermalThresholdC = 95.0
 
@@ -20,35 +20,35 @@ final class SafetySupervisor: Sendable {
     /// Last CPU usage reading.
     private var lastCPUReading: (timestamp: Date, rusageSecs: Double)?
 
-    init(armed: Bool = false, logger: @escaping (String) -> Void = { _ in }) {
+    public init(armed: Bool = false, logger: @escaping (String) -> Void = { _ in }) {
         self.armed = armed
         self.logger = logger
     }
 
     /// Sets observe/armed mode.
-    func setArmed(_ newArmed: Bool) {
+    public func setArmed(_ newArmed: Bool) {
         armed = newArmed
         logger("[SafetySupervisor] Armed mode: \(armed)")
     }
 
     /// Returns whether the supervisor allows hardware writes.
-    func canWrite() -> Bool {
+    public func canWrite() -> Bool {
         return armed && !thermalOverride
     }
 
     /// Records a heartbeat from the control loop.
-    func recordHeartbeat(_ now: Date) {
+    public func recordHeartbeat(_ now: Date) {
         lastHeartbeat = now
     }
 
     /// Checks if the watchdog has detected a stall (>threshold seconds since heartbeat).
-    func isControlLoopStalled(now: Date, threshold: TimeInterval = 10.0) -> Bool {
+    public func isControlLoopStalled(now: Date, threshold: TimeInterval = 10.0) -> Bool {
         guard let last = lastHeartbeat else { return false }
         return now.timeIntervalSince(last) > threshold
     }
 
     /// Updates thermal override based on sensor readings and thermal state.
-    func updateThermalOverride(sensors: [SensorGroup: GroupReading], thermalState: ThermalState) {
+    public func updateThermalOverride(sensors: [SensorGroup: GroupReading], thermalState: ThermalState) {
         let maxTemp = sensors.values.map { $0.max }.max() ?? 0
         let thermalEmergency = maxTemp >= thermalThresholdC || thermalState == .critical
 
@@ -62,18 +62,18 @@ final class SafetySupervisor: Sendable {
     }
 
     /// Returns the required safety override RPM value (100% of max) or 0 if no override.
-    func getSafetyOverrideRPM(maxRPM: Double, sensors: [SensorGroup: GroupReading], thermalState: ThermalState) -> Double {
+    public func getSafetyOverrideRPM(maxRPM: Double, sensors: [SensorGroup: GroupReading], thermalState: ThermalState) -> Double {
         updateThermalOverride(sensors: sensors, thermalState: thermalState)
         return thermalOverride ? maxRPM : 0
     }
 
     /// Records CPU usage (from getrusage). Detects sustained high CPU usage.
-    func updateCPUUsage(rusageSecs: Double, now: Date) {
+    public func updateCPUUsage(rusageSecs: Double, now: Date) {
         lastCPUReading = (now, rusageSecs)
     }
 
     /// Checks if daemon has sustained >5% CPU over 60s.
-    func isSelfCPUHigh(now: Date, threshold: Double = 0.05, window: TimeInterval = 60) -> Bool {
+    public func isSelfCPUHigh(now: Date, threshold: Double = 0.05, window: TimeInterval = 60) -> Bool {
         guard let (oldTime, oldUsage) = lastCPUReading else { return false }
 
         let deltaS = now.timeIntervalSince(oldTime)
@@ -88,29 +88,29 @@ final class SafetySupervisor: Sendable {
 // MARK: - Watchdog Helper
 
 /// Watchdog: monitors heartbeat to detect stalled control loop.
-final class ControlLoopWatchdog: Sendable {
+public final class ControlLoopWatchdog: Sendable {
     private let stallThresholdS: TimeInterval
     private var lastHeartbeat: Date
     private let logger: (String) -> Void
 
-    init(stallThresholdS: TimeInterval = 10.0, logger: @escaping (String) -> Void = { _ in }) {
+    public init(stallThresholdS: TimeInterval = 10.0, logger: @escaping (String) -> Void = { _ in }) {
         self.stallThresholdS = stallThresholdS
         self.lastHeartbeat = Date()
         self.logger = logger
     }
 
     /// Records a heartbeat from the control loop.
-    func recordHeartbeat() {
+    public func recordHeartbeat() {
         lastHeartbeat = Date()
     }
 
     /// Checks if the loop is stalled.
-    func isStalled(now: Date) -> Bool {
+    public func isStalled(now: Date) -> Bool {
         return now.timeIntervalSince(lastHeartbeat) > stallThresholdS
     }
 
     /// Returns seconds since last heartbeat.
-    func secondsSinceHeartbeat(now: Date) -> TimeInterval {
+    public func secondsSinceHeartbeat(now: Date) -> TimeInterval {
         return now.timeIntervalSince(lastHeartbeat)
     }
 }
@@ -119,19 +119,19 @@ final class ControlLoopWatchdog: Sendable {
 
 /// Monitors daemon's own CPU usage via rusage deltas.
 /// Trips if sustained >5% over 60 seconds.
-final class SelfCPUWatchdog: Sendable {
+public final class SelfCPUWatchdog: Sendable {
     private let cpuThreshold = 0.05
     private let windowS = 60.0
     private let logger: (String) -> Void
 
     private var readings: [(timestamp: Date, rusageSecs: Double)] = []
 
-    init(logger: @escaping (String) -> Void = { _ in }) {
+    public init(logger: @escaping (String) -> Void = { _ in }) {
         self.logger = logger
     }
 
     /// Records a CPU usage sample (accumulated user + system seconds from rusage).
-    func recordSample(_ rusageSecs: Double, at now: Date) {
+    public func recordSample(_ rusageSecs: Double, at now: Date) {
         readings.append((now, rusageSecs))
 
         // Keep only samples within the window
@@ -140,7 +140,7 @@ final class SelfCPUWatchdog: Sendable {
     }
 
     /// Checks if the daemon is using >5% CPU sustained over the window.
-    func isHighCPU(now: Date) -> Bool {
+    public func isHighCPU(now: Date) -> Bool {
         guard readings.count >= 2 else { return false }
 
         let oldest = readings.first!
@@ -155,7 +155,7 @@ final class SelfCPUWatchdog: Sendable {
     }
 
     /// Returns the measured CPU percent (for logging/debugging).
-    func measureCPUPercent(now: Date) -> Double {
+    public func measureCPUPercent(now: Date) -> Double {
         guard readings.count >= 2 else { return 0 }
 
         let oldest = readings.first!

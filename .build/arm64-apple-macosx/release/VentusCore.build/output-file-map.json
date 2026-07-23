@@ -1,0 +1,49 @@
+{
+  "": {
+    "dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/VentusCore.d",
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/VentusCore.o",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/primary.swiftdeps"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusCore/Config.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/Config.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/Config~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/Config.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/Config.dia"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusCore/CurveEngine.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/CurveEngine.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/CurveEngine~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/CurveEngine.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/CurveEngine.dia"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusCore/PowerReader.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/PowerReader.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/PowerReader~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/PowerReader.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/PowerReader.dia"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusCore/RuleEngine.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/RuleEngine.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/RuleEngine~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/RuleEngine.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/RuleEngine.dia"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusCore/SMCClient.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/SMCClient.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/SMCClient~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/SMCClient.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/SMCClient.dia"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusCore/SafetySupervisor.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/SafetySupervisor.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/SafetySupervisor~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/SafetySupervisor.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/SafetySupervisor.dia"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusCore/SensorReader.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/SensorReader.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/SensorReader~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/SensorReader.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/SensorReader.dia"
+  }
+}

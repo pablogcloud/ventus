@@ -2,15 +2,15 @@ import Foundation
 
 /// Pure logic: evaluates auto-switch rules to determine active profile.
 /// Returns the name of the profile that should be active.
-final class RuleEngine: Sendable {
+public final class RuleEngine: Sendable {
     private let logger: (String) -> Void
 
-    init(logger: @escaping (String) -> Void = { _ in }) {
+    public init(logger: @escaping (String) -> Void = { _ in }) {
         self.logger = logger
     }
 
     /// Context needed to evaluate rules.
-    struct RuleContext: Equatable {
+public struct RuleContext: Equatable {
         let onBattery: Bool
         let clamshellClosed: Bool
         let externalDisplayConnected: Bool
@@ -23,7 +23,7 @@ final class RuleEngine: Sendable {
 
     /// Evaluates rules in priority order and returns the active profile name.
     /// Manual pin overrides all rules.
-    func evaluateRules(
+    public func evaluateRules(
         rulesConfig: RulesConfig,
         context: RuleContext,
         manualPin: String?,

@@ -1,0 +1,3 @@
+module VentusCore {
+    header "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusCore.build/include/VentusCore-Swift.h"
+}

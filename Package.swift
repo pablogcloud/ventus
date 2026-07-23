@@ -8,6 +8,7 @@ let package = Package(
     ],
     products: [
         .library(name: "VentusCore", targets: ["VentusCore"]),
+        .library(name: "VentusIPC", targets: ["VentusIPC"]),
         .executable(name: "ventusd", targets: ["ventusd"]),
         .executable(name: "ventusctl", targets: ["ventusctl"]),
         .executable(name: "VentusApp", targets: ["VentusApp"]),
@@ -26,6 +27,11 @@ let package = Package(
             path: "Sources/CVentusPrivate",
             publicHeadersPath: "include"
         ),
+        .target(
+            name: "VentusIPC",
+            dependencies: ["VentusCore"],
+            path: "Sources/VentusIPC"
+        ),
         .testTarget(
             name: "VentusCoreTests",
             dependencies: ["VentusCore"],
@@ -33,17 +39,17 @@ let package = Package(
         ),
         .executableTarget(
             name: "ventusd",
-            dependencies: ["VentusCore"],
+            dependencies: ["VentusCore", "VentusIPC"],
             path: "Sources/ventusd"
         ),
         .executableTarget(
             name: "ventusctl",
-            dependencies: ["VentusCore"],
+            dependencies: ["VentusCore", "VentusIPC"],
             path: "Sources/ventusctl"
         ),
         .executableTarget(
             name: "VentusApp",
-            dependencies: ["VentusCore"],
+            dependencies: ["VentusCore", "VentusIPC"],
             path: "Sources/VentusApp"
         ),
     ]

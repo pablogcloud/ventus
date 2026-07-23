@@ -1,0 +1,13 @@
+{
+  "": {
+    "dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/ventusctl.build/ventusctl.d",
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/ventusctl.build/ventusctl.o",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/ventusctl.build/primary.swiftdeps"
+  },
+  "/Users/pablo/Projects/ventus/Sources/ventusctl/main.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/ventusctl.build/main.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/ventusctl.build/main~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/ventusctl.build/main.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/ventusctl.build/main.dia"
+  }
+}

@@ -1,105 +1,53 @@
 #ifndef CVENTUS_PRIVATE_H
 #define CVENTUS_PRIVATE_H
 
+// Private-but-stable Apple interfaces used for Apple Silicon telemetry.
+// Same surface used by Stats, macmon, and smcFanControl derivatives.
+// All types are opaque; never define their layouts.
+
 #include <CoreFoundation/CoreFoundation.h>
-#include <IOKit/IOKitLib.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// MARK: - IOHIDEventSystem (private but stable)
+// MARK: - IOHIDEventSystem (temperature sensors)
 
 typedef struct __IOHIDEventSystemClient *IOHIDEventSystemClientRef;
 typedef struct __IOHIDServiceClient *IOHIDServiceClientRef;
-
-IOHIDEventSystemClientRef IOHIDEventSystemClientCreate(CFAllocatorRef allocator);
-
-CFArrayRef IOHIDEventSystemClientCopyServices(IOHIDEventSystemClientRef client);
-void IOHIDEventSystemClientScheduleWithRunLoop(
-    IOHIDEventSystemClientRef client,
-    CFRunLoopRef runLoop,
-    CFStringRef mode
-);
-void IOHIDEventSystemClientUnscheduleFromRunLoop(
-    IOHIDEventSystemClientRef client,
-    CFRunLoopRef runLoop,
-    CFStringRef mode
-);
-
-typedef void (*IOHIDServiceClientEventCallback)(
-    void *target,
-    void *refcon,
-    void *sender,
-    IOHIDEventRef event
-);
-
-void IOHIDServiceClientRegisterEventCallback(
-    IOHIDServiceClientRef service,
-    IOHIDServiceClientEventCallback callback,
-    void *target,
-    void *refcon
-);
-
-struct __IOHIDEvent {
-    uint32_t type;
-    uint64_t timestamp;
-    uint32_t senderID;
-    int32_t latency;
-    float quality;
-    uint8_t reserved[4];
-    // followed by field data
-};
 typedef struct __IOHIDEvent *IOHIDEventRef;
 
-IOHIDEventRef IOHIDServiceClientCopyEvent(
-    IOHIDServiceClientRef service,
-    int32_t eventType,
-    IOHIDEventRef event,
-    IOOptionBits options
-);
+IOHIDEventSystemClientRef IOHIDEventSystemClientCreate(CFAllocatorRef allocator);
+void IOHIDEventSystemClientSetMatching(IOHIDEventSystemClientRef client, CFDictionaryRef matching);
+CFArrayRef IOHIDEventSystemClientCopyServices(IOHIDEventSystemClientRef client);
+CFTypeRef IOHIDServiceClientCopyProperty(IOHIDServiceClientRef service, CFStringRef property);
+IOHIDEventRef IOHIDServiceClientCopyEvent(IOHIDServiceClientRef service, int64_t type,
+                                          int32_t options, int64_t timestamp);
+double IOHIDEventGetFloatValue(IOHIDEventRef event, int32_t field);
 
-CFStringRef IOHIDServiceClientCopyProperty(
-    IOHIDServiceClientRef service,
-    CFStringRef property
-);
+#define kVentusHIDEventTypeTemperature 15
+#define kVentusHIDFieldTemperatureLevel (15 << 16)
+#define kVentusHIDUsagePageAppleVendor 0xff00
+#define kVentusHIDUsageAppleVendorTemperatureSensor 5
 
-// Event field indices
-#define kIOHIDEventTypeTemperature 15
-#define kIOHIDEventFieldTemperatureLevel (15 << 16 | 0)
+// MARK: - IOReport (package power / energy model)
 
-// MARK: - IOReport (private but stable energy model)
-
+typedef CFDictionaryRef IOReportSampleRef;
 typedef struct __IOReportSubscription *IOReportSubscriptionRef;
 
-IOReportSubscriptionRef IOReportCreateSubscription(
-    void *a,
-    CFMutableDictionaryRef channels,
-    CFMutableDictionaryRef *out,
-    uint64_t desiredChannels
-);
-
-int IOReportIterate(
-    IOReportSubscriptionRef subscription,
-    int(^block)(IOReportSampleRef ch)
-);
-
-uint64_t IOReportChannelGetChannelID(IOReportSampleRef ch);
-uint64_t IOReportChannelGetFormat(IOReportSampleRef ch);
-uint64_t IOReportArrayGetValueAtIndex(IOReportSampleRef ch, size_t index);
+CFMutableDictionaryRef IOReportCopyChannelsInGroup(CFStringRef group, CFStringRef subgroup,
+                                                   uint64_t a, uint64_t b, uint64_t c);
+IOReportSubscriptionRef IOReportCreateSubscription(void *allocator, CFMutableDictionaryRef channels,
+                                                   CFMutableDictionaryRef *subbedChannels,
+                                                   uint64_t channelId, CFTypeRef b);
+CFDictionaryRef IOReportCreateSamples(IOReportSubscriptionRef subscription,
+                                      CFMutableDictionaryRef channels, CFTypeRef a);
+CFDictionaryRef IOReportCreateSamplesDelta(CFDictionaryRef prev, CFDictionaryRef current, CFTypeRef a);
+int IOReportIterate(CFDictionaryRef samples, int (^block)(IOReportSampleRef ch));
 CFStringRef IOReportChannelGetChannelName(IOReportSampleRef ch);
 CFStringRef IOReportChannelGetGroup(IOReportSampleRef ch);
-CFStringRef IOReportChannelGetSubGroup(IOReportSampleRef ch);
-CFStringRef IOReportChannelGetUnit(IOReportSampleRef ch);
-
-CFMutableDictionaryRef IOReportCopyChannelsInGroup(CFStringRef group);
-
-int IOReportGetDimensionality(uint64_t format);
-
-void IOReportRelease(IOReportSubscriptionRef subscription);
-
-// Thermal state notification
-extern CFStringRef kIOPMThermalLevelNotification;
+CFStringRef IOReportChannelGetUnitLabel(IOReportSampleRef ch);
+int64_t IOReportSimpleGetIntegerValue(IOReportSampleRef ch, int32_t idx);
 
 #ifdef __cplusplus
 }

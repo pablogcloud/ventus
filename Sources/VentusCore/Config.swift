@@ -1,27 +1,27 @@
 import Foundation
 
 /// Complete Ventus configuration schema, versioned and Codable.
-struct Config: Codable, Equatable {
+public struct Config: Codable, Equatable {
     /// Schema version for forward compatibility.
-    let schemaVersion: Int = 1
+    public let schemaVersion: Int = 1
 
     /// True if daemon should write to hardware; false = observe mode only.
-    var armed: Bool = false
+    public var armed: Bool = false
 
     /// Named profiles (e.g., "quiet", "balanced", "performance", "auto-apple").
-    var profiles: [String: Profile] = [:]
+    public var profiles: [String: Profile] = [:]
 
     /// Rule engine configuration.
-    var rules: RulesConfig = RulesConfig()
+    public var rules: RulesConfig = RulesConfig()
 
     /// Curve engine parameters.
-    var engine: EngineParams = EngineParams()
+    public var engine: EngineParams = EngineParams()
 
     /// Manually pinned profile (if set, overrides rule-based selection).
-    var pinnedProfile: String?
+    public var pinnedProfile: String?
 
     /// Validates the entire config. Throws on error.
-    func validate() throws {
+    public func validate() throws {
         // At least one profile
         guard !profiles.isEmpty else {
             throw ConfigError.noProfiles
@@ -51,7 +51,7 @@ struct Config: Codable, Equatable {
     }
 
     /// Returns a sensible default configuration for M2 Max MacBook Pro.
-    static func defaultConfig() -> Config {
+    public static func defaultConfig() -> Config {
         var config = Config()
 
         // Quiet profile: lower fan speeds for silent operation
@@ -169,7 +169,7 @@ struct Config: Codable, Equatable {
 }
 
 /// Error type for config validation.
-enum ConfigError: Error, Equatable {
+public enum ConfigError: Error, Equatable {
     case noProfiles
     case invalidProfile(name: String, reason: String)
     case pinnedProfileNotFound(name: String)
@@ -179,32 +179,32 @@ enum ConfigError: Error, Equatable {
 }
 
 /// A single curve point (temp -> RPM mapping).
-struct CurvePoint: Codable, Equatable, Hashable {
-    let temp: Double
-    let rpm: Double
+public struct CurvePoint: Codable, Equatable, Hashable {
+    public let temp: Double
+    public let rpm: Double
 }
 
 /// A single fan control profile.
-struct Profile: Codable, Equatable {
-    let name: String
+public struct Profile: Codable, Equatable {
+    public let name: String
 
     /// Per-fan curves: fan index -> curve
-    let curves: [Int: FanCurve]
+    public let curves: [Int: FanCurve]
 
     /// Optional watts-based curve (limits max RPM based on package power).
-    let powerCurve: PowerCurve?
+    public let powerCurve: PowerCurve?
 
     /// EMA time constant (seconds) for sensor smoothing.
-    let emaTimeConstantS: Double
+    public let emaTimeConstantS: Double
 
     /// Hysteresis gap (°C) for ramp-down threshold.
-    let hysteresisGapC: Double
+    public let hysteresisGapC: Double
 
     /// Hysteresis dwell (seconds) to sustain below threshold before ramping down.
-    let hysteresisDwellS: Double
+    public let hysteresisDwellS: Double
 
     /// Validates this profile.
-    func validate() throws {
+    public func validate() throws {
         // Validate profile's own EMA and hysteresis parameters
         guard emaTimeConstantS > 0 else {
             throw ConfigError.invalidProfile(name: name, reason: "EMA tau must be > 0")
@@ -227,16 +227,16 @@ struct Profile: Codable, Equatable {
 }
 
 /// A single piecewise-linear temperature → RPM curve for one fan.
-struct FanCurve: Codable, Equatable {
+public struct FanCurve: Codable, Equatable {
     /// Weighted input mix over sensor groups (must sum to ~1.0).
-    let inputMix: [SensorGroup: Double]
+    public let inputMix: [SensorGroup: Double]
 
     /// Piecewise linear points: (temperature in °C, target RPM).
     /// Must be sorted by temperature and have monotonically increasing RPM.
-    let points: [CurvePoint]
+    public let points: [CurvePoint]
 
     /// Validates this curve.
-    func validate() throws {
+    public func validate() throws {
         // Must have at least 2 points
         guard points.count >= 2 else {
             throw ConfigError.invalidTempCurve(reason: "Curve must have ≥2 points")
@@ -269,12 +269,12 @@ struct FanCurve: Codable, Equatable {
 }
 
 /// Optional power-based curve: watts → RPM limit.
-struct PowerCurve: Codable, Equatable {
+public struct PowerCurve: Codable, Equatable {
     /// Points: (package watts, max RPM at that power level).
-    let points: [PowerPoint]
+    public let points: [PowerPoint]
 
     /// Validates this curve.
-    func validate() throws {
+    public func validate() throws {
         guard points.count >= 1 else {
             throw ConfigError.invalidTempCurve(reason: "Power curve must have ≥1 point")
         }
@@ -297,17 +297,17 @@ struct PowerCurve: Codable, Equatable {
 }
 
 /// A single power curve point.
-struct PowerPoint: Codable, Equatable, Hashable {
-    let watts: Double
-    let rpm: Double
+public struct PowerPoint: Codable, Equatable, Hashable {
+    public let watts: Double
+    public let rpm: Double
 }
 
 /// Rules configuration.
-struct RulesConfig: Codable, Equatable {
-    var rules: [Rule] = []
+public struct RulesConfig: Codable, Equatable {
+    public var rules: [Rule] = []
 
     /// Validates all rules.
-    func validate(knownProfiles: Set<String>) throws {
+    public func validate(knownProfiles: Set<String>) throws {
         for rule in rules {
             try rule.validate(knownProfiles: knownProfiles)
         }
@@ -315,18 +315,18 @@ struct RulesConfig: Codable, Equatable {
 }
 
 /// A single rule that triggers profile selection.
-struct Rule: Codable, Equatable {
+public struct Rule: Codable, Equatable {
     /// Priority order (higher = checked first).
-    let priority: Int
+    public let priority: Int
 
     /// Trigger condition.
-    let trigger: RuleTrigger
+    public let trigger: RuleTrigger
 
     /// Profile to activate if this rule matches.
-    let profileName: String
+    public let profileName: String
 
     /// Validates this rule.
-    func validate(knownProfiles: Set<String>) throws {
+    public func validate(knownProfiles: Set<String>) throws {
         guard knownProfiles.contains(profileName) else {
             throw ConfigError.invalidProfile(name: profileName, reason: "Profile not found")
         }
@@ -334,7 +334,7 @@ struct Rule: Codable, Equatable {
 }
 
 /// Conditions that can trigger a rule.
-enum RuleTrigger: Codable, Equatable {
+public enum RuleTrigger: Codable, Equatable {
     case onBattery
     case onAC
     case clamshellClosed
@@ -345,27 +345,27 @@ enum RuleTrigger: Codable, Equatable {
 }
 
 /// Engine parameters for the curve engine.
-struct EngineParams: Codable, Equatable {
+public struct EngineParams: Codable, Equatable {
     /// Default EMA time constant (seconds).
-    var defaultEMATimeConstantS: Double = 5.0
+    public var defaultEMATimeConstantS: Double = 5.0
 
     /// Default hysteresis gap (°C).
-    var defaultHysteresisGapC: Double = 5.0
+    public var defaultHysteresisGapC: Double = 5.0
 
     /// Default hysteresis dwell (seconds).
-    var defaultHysteresisDwellS: Double = 20.0
+    public var defaultHysteresisDwellS: Double = 20.0
 
     /// Max RPM slew rate (RPM/s).
-    var maxSlewRateRPMPerS: Double = 300.0
+    public var maxSlewRateRPMPerS: Double = 300.0
 
     /// Tick rate when cool and idle (seconds).
-    var coolIdleTickS: Double = 5.0
+    public var coolIdleTickS: Double = 5.0
 
     /// Tick rate when hot or loaded (seconds).
-    var hotLoadedTickS: Double = 1.0
+    public var hotLoadedTickS: Double = 1.0
 
     /// Validates these parameters.
-    func validate() throws {
+    public func validate() throws {
         guard defaultEMATimeConstantS > 0 else {
             throw ConfigError.invalidProfile(name: "", reason: "EMA tau must be > 0")
         }

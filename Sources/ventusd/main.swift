@@ -1,7 +1,15 @@
 import Foundation
 @preconcurrency import VentusCore
 import VentusIPC
+import IOKit
+import IOKit.pwr_mgt
 import os.log
+
+// From <IOKit/IOMessage.h> — not surfaced by the Swift IOKit module. Stable
+// ABI values (iokit_common_msg(0x2xx/0x3xx)).
+private let kVentusMessageCanSystemSleep: UInt32 = 0xE000_0270
+private let kVentusMessageSystemWillSleep: UInt32 = 0xE000_0280
+private let kVentusMessageSystemHasPoweredOn: UInt32 = 0xE000_0300
 
 // MARK: - Telemetry Data Structures (Simplified for serialization)
 
@@ -227,6 +235,12 @@ class DaemonController {
     // must not block SIGTERM cleanup.
     private let signalQueue = DispatchQueue(label: "com.formm.ventus.signals")
 
+    // Audit H7: sleep/wake power management.
+    private var powerConnection: io_connect_t = 0
+    private var powerNotifier: IONotificationPortRef?
+    private var powerNotifierObject: io_object_t = 0
+    private let powerQueue = DispatchQueue(label: "com.formm.ventus.power")
+
     // Hardware ownership now lives entirely in state.hardwareOwner: it holds the
     // emergency latch and serializes all SMC writes on its own queue, so the
     // control loop, watchdog, and signal handler coordinate through submit() with
@@ -283,6 +297,9 @@ class DaemonController {
         } else {
             logMessage("[Daemon] Monitor-only mode: this Mac has no controllable fans")
         }
+
+        // Register for sleep/wake before driving fans.
+        setupPowerNotifications()
 
         // Start the control loop
         startControlLoop()
@@ -543,6 +560,56 @@ class DaemonController {
     }
 
     // MARK: - Signal Handlers
+
+    /// Audit H7: register for system sleep/wake. On will-sleep we restore fans
+    /// to Apple auto and release the power assertion — never hold a forced
+    /// target through an uncontrolled sleep where the control loop is frozen.
+    /// The in-memory `armed` flag is preserved, so on wake the control loop's
+    /// next tick re-establishes forced control automatically. SMC forced-fan
+    /// state across sleep on Apple Silicon is undocumented; restoring first is
+    /// the safe assumption either way.
+    private func setupPowerNotifications() {
+        var notifier: IONotificationPortRef?
+        var notifierObject: io_object_t = 0
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        let connection = IORegisterForSystemPower(context, &notifier, { refcon, _, messageType, argument in
+            guard let refcon else { return }
+            let controller = Unmanaged<DaemonController>.fromOpaque(refcon).takeUnretainedValue()
+            controller.handlePowerMessage(type: messageType, argument: argument)
+        }, &notifierObject)
+
+        guard connection != MACH_PORT_NULL, let notifier else {
+            logMessage("[Power] IORegisterForSystemPower failed — sleep/wake handling inactive")
+            return
+        }
+        self.powerConnection = connection
+        self.powerNotifier = notifier
+        self.powerNotifierObject = notifierObject
+        IONotificationPortSetDispatchQueue(notifier, powerQueue)
+        logMessage("[Power] Registered for sleep/wake notifications")
+    }
+
+    private func handlePowerMessage(type: UInt32, argument: UnsafeMutableRawPointer?) {
+        switch type {
+        case kVentusMessageSystemWillSleep:
+            // Restore to Apple auto so fans aren't stuck forced through sleep,
+            // then allow the sleep (must not block or the system stalls ~30s).
+            if state.armed {
+                logMessage("[Power] System will sleep — restoring fans to Apple auto (armed flag preserved)")
+                _ = state.restoreAuto(deadline: 2)
+            }
+            IOAllowPowerChange(powerConnection, Int(bitPattern: argument))
+        case kVentusMessageCanSystemSleep:
+            // We never veto sleep.
+            IOAllowPowerChange(powerConnection, Int(bitPattern: argument))
+        case kVentusMessageSystemHasPoweredOn:
+            // The control loop resumes on its own tick and re-issues forced
+            // targets if still armed; nothing to force here.
+            logMessage("[Power] System woke — control loop resumes")
+        default:
+            break
+        }
+    }
 
     private func setupSignalHandlers() {
         // Signal sources live on signalQueue (NOT serialQueue): a stalled control

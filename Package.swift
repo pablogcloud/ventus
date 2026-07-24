@@ -54,7 +54,10 @@ let package = Package(
         .executableTarget(
             name: "VentusApp",
             dependencies: ["VentusCore", "VentusIPC"],
-            path: "Sources/VentusApp"
+            path: "Sources/VentusApp",
+            resources: [
+                .copy("Resources/Fonts"),
+            ]
         ),
     ]
 )

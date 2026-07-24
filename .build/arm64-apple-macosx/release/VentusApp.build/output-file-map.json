@@ -4,10 +4,58 @@
     "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusApp.o",
     "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/primary.swiftdeps"
   },
-  "/Users/pablo/Projects/ventus/Sources/VentusApp/main.swift": {
-    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/main.swift.o",
-    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/main~partial.swiftmodule",
-    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/main.swiftdeps",
-    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/main.dia"
+  "/Users/pablo/Projects/ventus/Sources/VentusApp/CurvesView.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/CurvesView.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/CurvesView~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/CurvesView.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/CurvesView.dia"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusApp/DaemonClient.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/DaemonClient.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/DaemonClient~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/DaemonClient.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/DaemonClient.dia"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusApp/DashboardView.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/DashboardView.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/DashboardView~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/DashboardView.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/DashboardView.dia"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusApp/PopoverView.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/PopoverView.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/PopoverView~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/PopoverView.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/PopoverView.dia"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusApp/ProfilesView.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/ProfilesView.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/ProfilesView~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/ProfilesView.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/ProfilesView.dia"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusAppMain.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusAppMain.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusAppMain~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusAppMain.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusAppMain.dia"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusComponents.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusComponents.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusComponents~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusComponents.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusComponents.dia"
+  },
+  "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusTheme.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusTheme.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusTheme~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusTheme.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/VentusTheme.dia"
+  },
+  "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/DerivedSources/resource_bundle_accessor.swift": {
+    "object": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/resource_bundle_accessor.swift.o",
+    "swiftmodule": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/resource_bundle_accessor~partial.swiftmodule",
+    "swift-dependencies": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/resource_bundle_accessor.swiftdeps",
+    "diagnostics": "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/release/VentusApp.build/resource_bundle_accessor.dia"
   }
 }

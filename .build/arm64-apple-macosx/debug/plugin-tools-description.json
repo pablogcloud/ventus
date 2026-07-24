@@ -7,7 +7,20 @@
     }
   ],
   "copyCommands" : {
-
+    "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/ventus_VentusApp.bundle/Fonts" : {
+      "inputs" : [
+        {
+          "kind" : "directory",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/Resources/Fonts"
+        }
+      ],
+      "outputs" : [
+        {
+          "kind" : "directory",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/ventus_VentusApp.bundle/Fonts"
+        }
+      ]
+    }
   },
   "explicitTargetDependencyImportCheckingMode" : {
     "none" : {
@@ -28,11 +41,47 @@
       "inputs" : [
         {
           "kind" : "file",
-          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/main.swift"
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/CurvesView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/DaemonClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/DashboardView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/PopoverView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/ProfilesView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusAppMain.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusComponents.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusTheme.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/DerivedSources/resource_bundle_accessor.swift"
         },
         {
           "kind" : "file",
           "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "virtual",
+          "name" : "<VentusApp-arm64-apple-macosx-debug.module-resources>"
         },
         {
           "kind" : "file",
@@ -51,7 +100,15 @@
       "moduleName" : "VentusApp",
       "moduleOutputPath" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/Modules/VentusApp.swiftmodule",
       "objects" : [
-        "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/main.swift.o"
+        "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/CurvesView.swift.o",
+        "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/DaemonClient.swift.o",
+        "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/DashboardView.swift.o",
+        "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/PopoverView.swift.o",
+        "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/ProfilesView.swift.o",
+        "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/VentusAppMain.swift.o",
+        "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/VentusComponents.swift.o",
+        "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/VentusTheme.swift.o",
+        "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/resource_bundle_accessor.swift.o"
       ],
       "otherArguments" : [
         "-target",
@@ -66,7 +123,7 @@
         "-j12",
         "-DSWIFT_PACKAGE",
         "-DDEBUG",
-        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_AVAILABLE",
         "-Xcc",
         "-fmodule-map-file=/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/CVentusPrivate.build/module.modulemap",
         "-Xcc",
@@ -80,7 +137,6 @@
         "-entry-point-function-name",
         "-Xfrontend",
         "VentusApp_main",
-        "-parse-as-library",
         "-swift-version",
         "5",
         "-plugin-path",
@@ -113,7 +169,39 @@
       "outputs" : [
         {
           "kind" : "file",
-          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/main.swift.o"
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/CurvesView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/DaemonClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/DashboardView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/PopoverView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/ProfilesView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/VentusAppMain.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/VentusComponents.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/VentusTheme.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/resource_bundle_accessor.swift.o"
         },
         {
           "kind" : "file",
@@ -122,7 +210,15 @@
       ],
       "prepareForIndexing" : false,
       "sources" : [
-        "/Users/pablo/Projects/ventus/Sources/VentusApp/main.swift"
+        "/Users/pablo/Projects/ventus/Sources/VentusApp/CurvesView.swift",
+        "/Users/pablo/Projects/ventus/Sources/VentusApp/DaemonClient.swift",
+        "/Users/pablo/Projects/ventus/Sources/VentusApp/DashboardView.swift",
+        "/Users/pablo/Projects/ventus/Sources/VentusApp/PopoverView.swift",
+        "/Users/pablo/Projects/ventus/Sources/VentusApp/ProfilesView.swift",
+        "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusAppMain.swift",
+        "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusComponents.swift",
+        "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusTheme.swift",
+        "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/DerivedSources/resource_bundle_accessor.swift"
       ],
       "tempsPath" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build",
       "wholeModuleOptimization" : false
@@ -833,7 +929,15 @@
       "-package-name",
       "ventus",
       "-c",
-      "/Users/pablo/Projects/ventus/Sources/VentusApp/main.swift",
+      "/Users/pablo/Projects/ventus/Sources/VentusApp/CurvesView.swift",
+      "/Users/pablo/Projects/ventus/Sources/VentusApp/DaemonClient.swift",
+      "/Users/pablo/Projects/ventus/Sources/VentusApp/DashboardView.swift",
+      "/Users/pablo/Projects/ventus/Sources/VentusApp/PopoverView.swift",
+      "/Users/pablo/Projects/ventus/Sources/VentusApp/ProfilesView.swift",
+      "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusAppMain.swift",
+      "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusComponents.swift",
+      "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusTheme.swift",
+      "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/DerivedSources/resource_bundle_accessor.swift",
       "-I",
       "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/Modules",
       "-target",
@@ -848,7 +952,7 @@
       "-j12",
       "-DSWIFT_PACKAGE",
       "-DDEBUG",
-      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_AVAILABLE",
       "-Xcc",
       "-fmodule-map-file=/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/CVentusPrivate.build/module.modulemap",
       "-Xcc",
@@ -862,7 +966,6 @@
       "-entry-point-function-name",
       "-Xfrontend",
       "VentusApp_main",
-      "-parse-as-library",
       "-swift-version",
       "5",
       "-plugin-path",
@@ -1379,7 +1482,39 @@
         },
         {
           "kind" : "file",
-          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/main.swift"
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/CurvesView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/DaemonClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/DashboardView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/PopoverView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/ProfilesView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusAppMain.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusComponents.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/Sources/VentusApp/VentusTheme.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/DerivedSources/resource_bundle_accessor.swift"
         }
       ],
       "outputFilePath" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/sources"
@@ -1397,7 +1532,39 @@
         },
         {
           "kind" : "file",
-          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/main.swift.o"
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/CurvesView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/DaemonClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/DashboardView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/PopoverView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/ProfilesView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/VentusAppMain.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/VentusComponents.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/VentusTheme.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusApp.build/resource_bundle_accessor.swift.o"
         },
         {
           "kind" : "file",

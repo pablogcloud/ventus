@@ -3,9 +3,33 @@
 <plist version="1.0">
 <dict>
 	<key>files</key>
-	<dict/>
+	<dict>
+		<key>Resources/Fonts/InstrumentSans.ttf</key>
+		<data>
+		BSs/KeGvadA/qVbBWJxMyBWyAPA=
+		</data>
+		<key>Resources/Fonts/Sora.ttf</key>
+		<data>
+		2+4sTFdlPGmkkqBz9Sa3je73cXo=
+		</data>
+	</dict>
 	<key>files2</key>
-	<dict/>
+	<dict>
+		<key>Resources/Fonts/InstrumentSans.ttf</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			sk8YElhIFpWK/PIuItCORDGMXlFlHiXSQ4793jibM7E=
+			</data>
+		</dict>
+		<key>Resources/Fonts/Sora.ttf</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			hP9wlq4+xsi+R9kG0aC6TefyznjGFSdcdzAZZKMW4Ww=
+			</data>
+		</dict>
+	</dict>
 	<key>rules</key>
 	<dict>
 		<key>^Resources/</key>

@@ -1,6 +1,10 @@
 # Ventus — State after visual/UX session (2026-07-23 evening)
 
-Branch `feat/v1-build`, HEAD `8f3dbff`. Build green, 55/55 tests green.
+Branch `feat/v1-build`, HEAD `914a54d`. Build green, 55/55 tests green.
+Four Codex adversarial rounds ran on this work; all fixable findings landed
+(transaction serialization + generation tokens, XPC continuations that always
+resolve, honest unverified-state UI, all-fans-first restore writes). The one
+deferred finding is the XPC code-sign check below.
 
 ## What changed this session (all verified visually via screenshots)
 

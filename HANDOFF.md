@@ -1,10 +1,38 @@
-# Ventus — State after visual/UX session (2026-07-23 evening)
+# Ventus — State after visual/UX + safety-audit session (2026-07-24)
 
-Branch `feat/v1-build`, HEAD `9744a66`. Build green, 59/59 tests green.
-Four Codex adversarial rounds ran on this work; all fixable findings landed
-(transaction serialization + generation tokens, XPC continuations that always
-resolve, honest unverified-state UI, all-fans-first restore writes). The one
-deferred finding is the XPC code-sign check below.
+Branch `feat/v1-build`, HEAD `b73b3bb`. Build green, 61/61 tests green.
+
+## Armed-path safety audit (2026-07-24)
+
+Codex adversarial audit + self-review + live SIGKILL fault injection. Live
+test PASSED: `kill -9` on the armed root daemon → launchd restarted it in
+~0.5s → startup restore wrote fans to Apple auto → mode observe (verified in
+ventusd.log: "Performing startup restoreAuto", F0Md/F1Md=0). Findings fixed in
+b73b3bb (C1 startup-restore gating, C4 resolved-profile validation, C5/C8
+consecutive-command-failure → exit, latched→disarm, H3 frozen-sensor
+detection, missing-profile mid-run restore, C8b getConfig race).
+
+**REMAINING KNOWN GAPS (not yet addressed — decide before shipping):**
+- **H7 sleep/wake: no lifecycle handling at all.** The daemon never registers
+  for IOPMSystemPowerStateNotification / IORegisterForSystemPower. Unknown
+  whether SMC forced-fan state survives sleep on Apple Silicon — needs a live
+  sleep test (arm, sleep the Mac, wake, check FxMd + whether the control loop
+  resumed). If forced state persists across sleep with a stalled loop, fans
+  could hold a stale target. This is the biggest open safety item.
+- **H2** owner-queue wedge: `HardwareOwner.submit` timeout doesn't cancel
+  queued work, so an emergency latch might not engage — but the new C5/C8
+  consecutive-failure `exit(1)` makes launchd-restart the reliable backstop
+  regardless, so this is mitigated in outcome if not in mechanism.
+- **H9** no thermal floor in curve validation (an all-min-RPM curve is
+  "valid") — the 95°C force-max override is the backstop, so defense-in-depth
+  only; low priority.
+- **XPC code-sign check** (from the earlier UI audit): the root daemon still
+  trusts any admin-UID client. Fold into the same hardening pass.
+
+**The hardened daemon (b73b3bb) is NOT deployed** — reinstall needs admin and
+the prompt didn't go through this session. Run `sudo bash scripts/install.sh`.
+The running daemon is the prior binary (armed, Balanced), which is safe but
+lacks the new guards.
 
 ## What changed this session (all verified visually via screenshots)
 

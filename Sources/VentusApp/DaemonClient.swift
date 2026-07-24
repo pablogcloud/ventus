@@ -260,61 +260,55 @@ actor DaemonClient {
         }
     }
 
-    func setProfile(_ profileName: String) async -> Bool {
-        guard let proxy = connection?.remoteObjectProxyWithErrorHandler({ _ in })
-            as? VentusXPCProtocol
-        else {
-            return false
+    /// Resumes a continuation exactly once even if both the XPC reply and the
+    /// connection error handler fire.
+    private final class OnceFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var fired = false
+        func tryFire() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            if fired { return false }
+            fired = true
+            return true
         }
+    }
 
+    /// One control call whose continuation is GUARANTEED to resume: XPC invokes
+    /// either the reply block or the connection error handler — the previous
+    /// per-method pattern ignored the error handler, so a dropped connection
+    /// leaked the continuation and stalled the app's control-transaction chain
+    /// forever.
+    private func controlCall(
+        _ invoke: (VentusXPCProtocol, @escaping (Data) -> Void) -> Void
+    ) async -> Bool {
+        let once = OnceFlag()
         return await withCheckedContinuation { continuation in
-            proxy.setProfile(profileName) { resultData in
-                do {
-                    let result = try JSONDecoder().decode(XPCResult.self, from: resultData)
-                    continuation.resume(returning: result.success)
-                } catch {
-                    continuation.resume(returning: false)
-                }
+            guard let proxy = connection?.remoteObjectProxyWithErrorHandler({ _ in
+                if once.tryFire() { continuation.resume(returning: false) }
+            }) as? VentusXPCProtocol else {
+                if once.tryFire() { continuation.resume(returning: false) }
+                return
+            }
+            invoke(proxy) { resultData in
+                guard once.tryFire() else { return }
+                let success = (try? JSONDecoder().decode(XPCResult.self, from: resultData))?
+                    .success ?? false
+                continuation.resume(returning: success)
             }
         }
+    }
+
+    func setProfile(_ profileName: String) async -> Bool {
+        await controlCall { proxy, reply in proxy.setProfile(profileName, reply: reply) }
     }
 
     func arm() async -> Bool {
-        guard let proxy = connection?.remoteObjectProxyWithErrorHandler({ _ in })
-            as? VentusXPCProtocol
-        else {
-            return false
-        }
-
-        return await withCheckedContinuation { continuation in
-            proxy.arm { resultData in
-                do {
-                    let result = try JSONDecoder().decode(XPCResult.self, from: resultData)
-                    continuation.resume(returning: result.success)
-                } catch {
-                    continuation.resume(returning: false)
-                }
-            }
-        }
+        await controlCall { proxy, reply in proxy.arm(reply: reply) }
     }
 
     func disarm() async -> Bool {
-        guard let proxy = connection?.remoteObjectProxyWithErrorHandler({ _ in })
-            as? VentusXPCProtocol
-        else {
-            return false
-        }
-
-        return await withCheckedContinuation { continuation in
-            proxy.disarm { resultData in
-                do {
-                    let result = try JSONDecoder().decode(XPCResult.self, from: resultData)
-                    continuation.resume(returning: result.success)
-                } catch {
-                    continuation.resume(returning: false)
-                }
-            }
-        }
+        await controlCall { proxy, reply in proxy.disarm(reply: reply) }
     }
 
     func setAppleAuto() async -> Bool {

@@ -159,6 +159,7 @@ struct PopoverView: View {
     private func enqueueAction(_ body: @escaping (Int) async -> Void) {
         actionGeneration += 1
         let gen = actionGeneration
+        actionError = nil   // a superseded transaction's error must not linger
         let previous = actionTask
         actionTask = Task {
             _ = await previous?.value

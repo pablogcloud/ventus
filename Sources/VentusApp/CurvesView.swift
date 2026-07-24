@@ -154,7 +154,7 @@ struct CurvesTabView: View {
         // nested glassEffect shapes.
         .background {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(Color.black.opacity(0.14))
         }
     }
 

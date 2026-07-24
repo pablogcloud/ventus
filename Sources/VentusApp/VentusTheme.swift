@@ -211,12 +211,13 @@ struct VentusGlassModifier: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
             content
-                // Regular-material backing under the glass (Open Spotlight
-                // lesson): keeps backdrop glyphs from reading through while
-                // preserving the liquid edge and morphing.
+                // Plain tint, NOT a material: a material backing frosts over
+                // the refraction and the whole thing reads as plastic. A dim
+                // tint keeps backdrop text unreadable while the liquid
+                // lensing stays visible.
                 .background(
                     RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .fill(.regularMaterial)
+                        .fill(Color.black.opacity(0.16))
                 )
                 .glassEffect(
                     .regular,

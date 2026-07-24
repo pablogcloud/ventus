@@ -162,20 +162,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Keep the menu-bar title in sync: CPU and GPU temperature.
+        // Keep the menu-bar readout in sync: CPU and GPU mean temperature as a
+        // stacked two-line template image — half the width of inline text.
         daemonClient.$status
             .receive(on: RunLoop.main)
             .sink { [weak self] status in
-                let cpu = status?.temperature(for: "cpu_perf") ?? status?.hottestTemperature
-                let gpu = status?.temperature(for: "gpu")
+                let cpu = status?.sensors.first { $0.groupName == "cpu_perf" }?.meanTemp
+                let gpu = status?.sensors.first { $0.groupName == "gpu" }?.meanTemp
+                guard let button = self?.statusItem?.button else { return }
+                button.image = Self.stackedTempImage(cpu: cpu, gpu: gpu)
+                button.imagePosition = .imageOnly
+                button.title = ""
                 let cpuText = cpu.map { String(format: "%.0f", $0) } ?? "--"
                 let gpuText = gpu.map { String(format: "%.0f", $0) } ?? "--"
-                // Compact dual readout: "58·59°" = CPU·GPU (menu-bar space is
-                // contested; the tooltip carries the labels).
-                self?.statusItem?.button?.title = " \(cpuText)·\(gpuText)°"
-                self?.statusItem?.button?.toolTip = "Ventus — CPU \(cpuText)°C · GPU \(gpuText)°C"
+                button.toolTip = "Ventus — CPU \(cpuText)°C · GPU \(gpuText)°C (mean)"
             }
             .store(in: &cancellables)
+    }
+
+    /// Two stacked 9pt lines ("C58" over "G59") as a template image so the
+    /// status item stays ~20pt wide and adapts to the menu-bar appearance.
+    private static func stackedTempImage(cpu: Double?, gpu: Double?) -> NSImage {
+        let cpuText = cpu.map { String(format: "C%.0f", $0) } ?? "C--"
+        let gpuText = gpu.map { String(format: "G%.0f", $0) } ?? "G--"
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .semibold)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.black,
+        ]
+        let cpuSize = (cpuText as NSString).size(withAttributes: attributes)
+        let gpuSize = (gpuText as NSString).size(withAttributes: attributes)
+        let width = ceil(max(cpuSize.width, gpuSize.width)) + 2
+        let height: CGFloat = 22
+        let image = NSImage(
+            size: NSSize(width: width, height: height),
+            flipped: false
+        ) { _ in
+            (cpuText as NSString).draw(
+                at: NSPoint(x: 1, y: height - cpuSize.height - 1),
+                withAttributes: attributes
+            )
+            (gpuText as NSString).draw(
+                at: NSPoint(x: 1, y: 1),
+                withAttributes: attributes
+            )
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 
     @objc private func togglePanel(_ sender: NSStatusBarButton) {

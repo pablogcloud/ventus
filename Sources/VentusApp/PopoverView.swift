@@ -9,6 +9,7 @@ struct PopoverView: View {
     @AppStorage("controlAuthorized") private var controlAuthorized = false
     @State private var pendingProfile: String?
     @State private var actionTask: Task<Void, Never>?
+    @State private var actionGeneration = 0
     @State private var actionError: String?
     @Environment(\.openWindow) private var openWindow
 
@@ -133,14 +134,11 @@ struct PopoverView: View {
     }
 
     private func select(profile key: String) {
-        // One in-flight control transaction at a time: a stale setProfile→arm
-        // must never land after a later Auto/disarm click.
-        actionTask?.cancel()
         if key == "auto-apple" {
             pendingProfile = nil
-            actionTask = Task {
+            enqueueAction { gen in
                 let ok = await observer.disarm()
-                guard !Task.isCancelled else { return }
+                guard gen == actionGeneration else { return }
                 actionError = ok ? nil : "Couldn't verify fans back to Apple auto — check the daemon log."
             }
         } else if !controlAuthorized {
@@ -149,22 +147,39 @@ struct PopoverView: View {
             }
         } else {
             pendingProfile = nil
-            actionTask = Task { await activate(key) }
+            enqueueAction { gen in await activate(key, generation: gen) }
+        }
+    }
+
+    /// Runs one control transaction strictly AFTER any in-flight one finishes
+    /// (Task.cancel cannot retract an XPC call that's already been sent, so
+    /// ordering — not cancellation — is what prevents a stale arm from landing
+    /// after a later disarm). The generation token makes superseded
+    /// transactions no-op at every step boundary.
+    private func enqueueAction(_ body: @escaping (Int) async -> Void) {
+        actionGeneration += 1
+        let gen = actionGeneration
+        let previous = actionTask
+        actionTask = Task {
+            _ = await previous?.value
+            guard gen == actionGeneration else { return }
+            await body(gen)
         }
     }
 
     /// Switch to a control profile; arms afterwards if the daemon is observing.
     /// Never arms when the profile switch itself was rejected.
-    private func activate(_ key: String) async {
+    private func activate(_ key: String, generation gen: Int) async {
+        guard gen == actionGeneration else { return }
         guard await observer.setProfile(key) else {
-            guard !Task.isCancelled else { return }
+            guard gen == actionGeneration else { return }
             actionError = "The daemon rejected the \(ventusProfileTitle(key)) profile."
             return
         }
-        guard !Task.isCancelled else { return }
+        guard gen == actionGeneration else { return }
         if observer.status?.mode != "armed" {
             let ok = await observer.arm()
-            guard !Task.isCancelled else { return }
+            guard gen == actionGeneration else { return }
             actionError = ok ? nil : "Couldn't enable fan control — check the daemon log."
         } else {
             actionError = nil
@@ -276,8 +291,7 @@ struct PopoverView: View {
                 Button {
                     controlAuthorized = true
                     pendingProfile = nil
-                    actionTask?.cancel()
-                    actionTask = Task { await activate(pending) }
+                    enqueueAction { gen in await activate(pending, generation: gen) }
                 } label: {
                     Text("Enable").frame(maxWidth: .infinity)
                 }
@@ -298,6 +312,11 @@ struct PopoverView: View {
 
     private func reasonText(_ status: TelemetrySnapshot) -> String {
         guard status.mode == "armed" else {
+            // Don't claim Apple has the fans while the last transaction failed
+            // (e.g. a disarm whose restore could not be verified).
+            if actionError != nil {
+                return "Fan state unverified — see the warning below"
+            }
             return "Apple is managing the fans"
         }
         guard let explanation = status.explanations.first else {

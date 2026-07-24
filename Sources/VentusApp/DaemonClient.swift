@@ -74,18 +74,24 @@ final class DaemonClientObserver: NSObject, ObservableObject {
     func arm() async -> Bool {
         guard status?.isFanControlAvailable ?? true else { return false }
         guard let client else { return false }
-        return await client.arm()
+        let ok = await client.arm()
+        _ = await client.getStatus()   // reflect the new mode immediately, don't wait for the poll
+        return ok
     }
 
     func disarm() async -> Bool {
         guard let client else { return false }
-        return await client.disarm()
+        let ok = await client.disarm()
+        _ = await client.getStatus()
+        return ok
     }
 
     func setAppleAuto() async -> Bool {
         guard status?.isFanControlAvailable ?? true else { return false }
         guard let client else { return false }
-        return await client.setAppleAuto()
+        let ok = await client.setAppleAuto()
+        _ = await client.getStatus()
+        return ok
     }
 
     func setConfig(_ config: Config) async -> Bool {
@@ -101,8 +107,6 @@ actor DaemonClient {
     nonisolated(unsafe) private weak var observer: DaemonClientObserver?
     private var connection: NSXPCConnection?
     private let serviceName = "com.formm.ventus.daemon"
-    private var pollTimer: Timer?
-    private var backgroundPollTimer: Timer?
     private var reconnectAttempts = 0
     private let maxReconnectAttempts = 5
 
@@ -300,21 +304,24 @@ actor DaemonClient {
         }
     }
 
+    private var pollTask: Task<Void, Never>?
+
     func startPolling() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            Task { _ = await self?.getStatus() }
-        }
-        backgroundPollTimer = Timer.scheduledTimer(
-            withTimeInterval: 10,
-            repeats: true
-        ) { [weak self] _ in
-            Task { _ = await self?.getStatus() }
+        // An async sleep loop, NOT Timer.scheduledTimer: this actor's executor has
+        // no run loop, so scheduled timers would never fire (the poll was dead —
+        // the UI froze on the first snapshot and never saw arm/disarm take effect).
+        pollTask?.cancel()
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                _ = await self?.getStatus()
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
         }
     }
 
     func stopPolling() {
-        pollTimer?.invalidate()
-        backgroundPollTimer?.invalidate()
+        pollTask?.cancel()
+        pollTask = nil
     }
 }
 

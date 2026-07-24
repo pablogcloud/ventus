@@ -88,6 +88,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.showPanel()
                     case "hidePopover":
                         self.closePanel()
+                    case "frames":
+                        self.dumpDebugFrames()
+                    case "pin":
+                        self.debugPinned = true
+                    case "unpin":
+                        self.debugPinned = false
+                    case let s? where s.hasPrefix("click:"):
+                        if let panel = self.panel, panel.isVisible {
+                            self.synthesizeClick(in: panel, topLeft: Self.parsePoint(s))
+                        }
+                    case let s? where s.hasPrefix("clickmain:"):
+                        if let main = NSApp.windows.first(where: { $0.identifier?.rawValue == "mainWindow" }) {
+                            self.synthesizeClick(in: main, topLeft: Self.parsePoint(s))
+                        }
+                    case let s? where s.hasPrefix("scrollmain:"):
+                        if let main = NSApp.windows.first(where: { $0.identifier?.rawValue == "mainWindow" }) {
+                            let nums = s.split(separator: ":").last?
+                                .split(separator: ",").compactMap { Double($0) } ?? []
+                            if nums.count == 3 {
+                                self.synthesizeScroll(
+                                    in: main,
+                                    topLeft: NSPoint(x: nums[0], y: nums[1]),
+                                    deltaY: nums[2]
+                                )
+                            }
+                        }
                     default:
                         break
                     }
@@ -110,13 +136,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Keep the menu-bar title in sync with the hottest temperature.
+        // Keep the menu-bar title in sync: CPU and GPU temperature.
         daemonClient.$status
             .receive(on: RunLoop.main)
             .sink { [weak self] status in
-                let hottest = status?.sensors.map(\.maxTemp).max()
-                let text = hottest.map { String(format: " %.0f°", $0) } ?? " --°"
-                self?.statusItem?.button?.title = text
+                let cpu = status?.temperature(for: "cpu_perf") ?? status?.hottestTemperature
+                let gpu = status?.temperature(for: "gpu")
+                let cpuText = cpu.map { String(format: "%.0f", $0) } ?? "--"
+                let gpuText = gpu.map { String(format: "%.0f", $0) } ?? "--"
+                // Compact dual readout: "58·59°" = CPU·GPU (menu-bar space is
+                // contested; the tooltip carries the labels).
+                self?.statusItem?.button?.title = " \(cpuText)·\(gpuText)°"
+                self?.statusItem?.button?.toolTip = "Ventus — CPU \(cpuText)°C · GPU \(gpuText)°C"
             }
             .store(in: &cancellables)
     }
@@ -148,6 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func closePanel() {
+        if debugPinned { return }
         panel?.orderOut(nil)
         if let clickMonitor {
             NSEvent.removeMonitor(clickMonitor)
@@ -179,10 +211,104 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.animationBehavior = .none
         host.view.layoutSubtreeIfNeeded()
         panel.setContentSize(host.view.fittingSize)
+
+        // Borderless windows grow UPWARD from their bottom-left origin. When
+        // the SwiftUI content changes height (authorization card, warnings),
+        // re-anchor so the top edge stays put under the menu bar.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let panel = self.panel, panel.isVisible,
+                      let topY = self.panelTopY else { return }
+                var frame = panel.frame
+                if abs(frame.maxY - topY) > 0.5 {
+                    frame.origin.y = topY - frame.height
+                    panel.setFrame(frame, display: true)
+                }
+            }
+        }
         self.panel = panel
         return panel
+    }
+
+    /// Screen-space Y of the panel's top edge, fixed while the panel is shown.
+    private var panelTopY: CGFloat?
+
+    /// Debug-only: while true, the panel ignores its transient auto-close
+    /// triggers so UI testing doesn't race the user's foreground activity.
+    private var debugPinned = false
+
+    // MARK: - Debug-hook click synthesis (active only with ~/.ventus-debug)
+
+    private static func parsePoint(_ command: String) -> NSPoint {
+        let nums = command.split(separator: ":").last?
+            .split(separator: ",")
+            .compactMap { Double($0.trimmingCharacters(in: .whitespaces)) } ?? []
+        return nums.count == 2 ? NSPoint(x: nums[0], y: nums[1]) : .zero
+    }
+
+    /// Sends a real leftMouseDown/Up pair through the window's event path —
+    /// same AppKit→SwiftUI routing as a user click, no accessibility needed.
+    /// Point is in the window's TOP-LEFT-origin coordinate space (like the
+    /// screenshots used to derive it).
+    private func synthesizeClick(in window: NSWindow, topLeft p: NSPoint) {
+        let location = NSPoint(x: p.x, y: window.frame.height - p.y)
+        window.makeKey()
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            if let event = NSEvent.mouseEvent(
+                with: type,
+                location: location,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            ) {
+                window.sendEvent(event)
+            }
+        }
+    }
+
+    private func synthesizeScroll(in window: NSWindow, topLeft p: NSPoint, deltaY: Double) {
+        let location = NSPoint(x: p.x, y: window.frame.height - p.y)
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 1,
+            wheel1: Int32(deltaY),
+            wheel2: 0,
+            wheel3: 0
+        ) else { return }
+        cgEvent.location = CGPoint(
+            x: window.frame.origin.x + location.x,
+            y: (NSScreen.screens.first?.frame.height ?? 0) - (window.frame.origin.y + location.y)
+        )
+        if let event = NSEvent(cgEvent: cgEvent) {
+            window.sendEvent(event)
+        }
+    }
+
+    private func dumpDebugFrames() {
+        var lines: [String] = []
+        if let panel {
+            lines.append("panel visible=\(panel.isVisible) frame=\(panel.frame)")
+        }
+        if let main = NSApp.windows.first(where: { $0.identifier?.rawValue == "mainWindow" }) {
+            lines.append("main visible=\(main.isVisible) frame=\(main.frame)")
+        }
+        if let screen = NSScreen.main {
+            lines.append("screen frame=\(screen.frame) visible=\(screen.visibleFrame) scale=\(screen.backingScaleFactor)")
+        }
+        try? lines.joined(separator: "\n").appending("\n")
+            .write(toFile: "/tmp/ventus-frames.txt", atomically: true, encoding: .utf8)
     }
 
     private func positionPanel(_ panel: NSPanel) {
@@ -211,6 +337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var x = anchorX - size.width
         x = max(visible.minX + 8, min(x, visible.maxX - size.width - 8))
         let y = anchorY - size.height - 6
+        panelTopY = anchorY - 6
         panel.setFrameOrigin(NSPoint(x: x, y: y))
     }
 }

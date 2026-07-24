@@ -282,6 +282,8 @@ func ventusSensorLabel(_ group: String) -> String {
         return "Battery"
     case "nand":
         return "NAND"
+    case "other":
+        return "Board"   // tdev1–8: board/device sensors near the die
     default:
         return group.replacingOccurrences(of: "_", with: " ").capitalized
     }

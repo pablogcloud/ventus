@@ -56,7 +56,7 @@ public final class SensorReader: @unchecked Sendable {
     /// The older "pACC/eACC/GPU MTR" patterns (M1-era) are kept as fallbacks.
     /// s/g suffix mapping is heuristic pending empirical validation under load (U5).
     /// Returns nil for sensors that must be excluded entirely.
-    func classifySensor(_ name: String) -> SensorGroup? {
+    public func classifySensor(_ name: String) -> SensorGroup? {
         let lower = name.lowercased()
         if lower.contains("tcal") {
             return nil  // calibration reference, not a thermal reading

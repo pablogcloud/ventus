@@ -112,41 +112,57 @@ private struct DieHeatMap: View {
                         .foregroundStyle(VentusPalette.ink3)
                         .position(x: width * 0.165, y: height * 0.035)
 
+                    // Sensor reality on this die (validated via sensordump):
+                    // one shared CPU-cluster sensor set (E-cores have no
+                    // separate sensor), 3 GPU cluster sensors, an 11-sensor
+                    // SoC die grid, board (tdev) sensors, and nothing for the
+                    // Neural Engine.
                     DieRegion(
-                        name: "P-cores",
+                        name: "P-CORES",
                         temperature: status.temperature(for: "cpu_perf"),
-                        tileColumns: 4
+                        tileColumns: 4,
+                        tileRows: 2
                     )
-                    .frame(width: width * 0.25, height: height * 0.39)
-                    .position(x: width * 0.19, y: height * 0.29)
+                    .frame(width: width * 0.25, height: height * 0.40)
+                    .position(x: width * 0.19, y: height * 0.305)
 
                     DieRegion(
-                        name: "E-cores",
-                        temperature: status.temperature(for: "cpu_eff"),
-                        tileColumns: 4
+                        name: "E-CORES",
+                        temperature: status.temperature(for: "cpu_perf"),
+                        tileColumns: 4,
+                        tileRows: 1,
+                        annotation: "shared"
                     )
-                    .frame(width: width * 0.25, height: height * 0.34)
-                    .position(x: width * 0.19, y: height * 0.715)
+                    .frame(width: width * 0.25, height: height * 0.315)
+                    .position(x: width * 0.19, y: height * 0.7)
 
                     DieRegion(
                         name: "GPU",
                         temperature: status.temperature(for: "gpu"),
-                        tileColumns: 6
+                        tileColumns: 6,
+                        tileRows: 4
                     )
-                    .frame(width: width * 0.357, height: height * 0.76)
-                    .position(x: width * 0.521, y: height * 0.50)
-
-                    NeuralRegion()
-                        .frame(width: width * 0.207, height: height * 0.43)
-                        .position(x: width * 0.823, y: height * 0.31)
+                    .frame(width: width * 0.357, height: height * 0.77)
+                    .position(x: width * 0.521, y: height * 0.5)
 
                     DieRegion(
-                        name: "SoC · media",
-                        temperature: status.temperature(for: "soc"),
-                        tileColumns: 3
+                        name: "NEURAL",
+                        temperature: nil,
+                        tileColumns: 3,
+                        tileRows: 1,
+                        annotation: "no sensor"
                     )
-                    .frame(width: width * 0.207, height: height * 0.29)
-                    .position(x: width * 0.823, y: height * 0.73)
+                    .frame(width: width * 0.207, height: height * 0.36)
+                    .position(x: width * 0.823, y: height * 0.285)
+
+                    DieRegion(
+                        name: "SOC · MEDIA",
+                        temperature: status.temperature(for: "soc"),
+                        tileColumns: 3,
+                        tileRows: 1
+                    )
+                    .frame(width: width * 0.207, height: height * 0.36)
+                    .position(x: width * 0.823, y: height * 0.7)
                 }
             }
             .frame(width: 620, height: 258)     // fixed: the schematic reads wrong blown up
@@ -171,6 +187,11 @@ private struct DieHeatMap: View {
                     .foregroundStyle(VentusPalette.ink3)
             }
             .frame(maxWidth: 620)
+
+            Text("E-cores share the CPU cluster sensor · the Neural Engine exposes none")
+                .font(VentusFont.body(10))
+                .foregroundStyle(VentusPalette.ink3)
+                .frame(maxWidth: 620, alignment: .leading)
         }
     }
 
@@ -186,75 +207,76 @@ private struct DieRegion: View {
     let name: String
     let temperature: Double?
     let tileColumns: Int
+    let tileRows: Int
+    var annotation: String?
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(temperature.map(VentusPalette.thermal) ?? VentusPalette.surface3)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(name)
+                    .font(VentusFont.number(9, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundStyle(VentusPalette.ink2)
+                    .lineLimit(1)
+                if let annotation {
+                    Text(annotation)
+                        .font(VentusFont.body(8))
+                        .foregroundStyle(VentusPalette.ink3)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Text(temperature.map { String(format: "%.0f°", $0) } ?? "—")
+                    .font(VentusFont.number(12, weight: .bold))
+                    .foregroundStyle(
+                        temperature.map(VentusPalette.thermal) ?? VentusPalette.ink3
+                    )
+            }
 
             GeometryReader { proxy in
-                let spacing: CGFloat = 6
-                let tileWidth = max(
-                    8,
-                    (proxy.size.width - CGFloat(tileColumns + 1) * spacing)
-                        / CGFloat(tileColumns)
-                )
-                let rows = name == "GPU" ? 4 : 2
+                let spacing: CGFloat = 4
+                let tileWidth = (proxy.size.width - CGFloat(tileColumns - 1) * spacing)
+                    / CGFloat(tileColumns)
+                let tileHeight = (proxy.size.height - CGFloat(tileRows - 1) * spacing)
+                    / CGFloat(tileRows)
+                let fill = temperature.map { VentusPalette.thermal($0) }
                 VStack(spacing: spacing) {
-                    ForEach(0..<rows, id: \.self) { _ in
+                    ForEach(0..<tileRows, id: \.self) { _ in
                         HStack(spacing: spacing) {
                             ForEach(0..<tileColumns, id: \.self) { _ in
                                 RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                    .fill(VentusPalette.thermalInk.opacity(0.13))
-                                    .frame(width: tileWidth)
+                                    .fill(fill?.opacity(0.72) ?? VentusPalette.surface3.opacity(0.5))
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                            .stroke(
+                                                fill?.opacity(0.9) ?? VentusPalette.borderStrong.opacity(0.6),
+                                                lineWidth: 1
+                                            )
+                                    }
+                                    .frame(width: max(tileWidth, 4), height: max(tileHeight, 4))
                             }
                         }
                     }
                 }
-                .padding(spacing)
             }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name)
-                    .font(VentusFont.body(11, weight: .semibold))
-                Text(temperature.map { String(format: "%.0f°", $0) } ?? "--°")
-                    .font(VentusFont.number(name == "GPU" ? 21 : 17, weight: .bold))
-            }
-            .foregroundStyle(VentusPalette.thermalInk)
-            .shadow(color: VentusPalette.thermalShadow, radius: 2, y: 1)
-            .padding(11)
+        }
+        .padding(8)
+        .background {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(VentusPalette.surface)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(
+                    VentusPalette.borderStrong.opacity(temperature == nil ? 0.7 : 1),
+                    style: temperature == nil
+                        ? StrokeStyle(lineWidth: 1, dash: [4, 4])
+                        : StrokeStyle(lineWidth: 1)
+                )
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             "\(name), \(temperature.map { String(format: "%.0f degrees Celsius", $0) } ?? "no reading")"
         )
-    }
-}
-
-private struct NeuralRegion: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Neural Engine")
-                .font(VentusFont.body(11, weight: .semibold))
-                .foregroundStyle(VentusPalette.ink2)
-            Text("no sensor reported")
-                .font(VentusFont.body(11))
-                .foregroundStyle(VentusPalette.ink3)
-            Spacer()
-        }
-        .padding(11)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(VentusPalette.surface)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(
-                    VentusPalette.borderStrong,
-                    style: StrokeStyle(lineWidth: 1, dash: [4, 4])
-                )
-        }
     }
 }
 

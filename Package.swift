@@ -52,6 +52,14 @@ let package = Package(
             path: "Sources/ventusctl"
         ),
         .executableTarget(
+            name: "sensordump",
+            dependencies: ["VentusCore", "CVentusPrivate"],
+            path: "Sources/sensordump",
+            linkerSettings: [
+                .linkedFramework("IOKit")
+            ]
+        ),
+        .executableTarget(
             name: "VentusApp",
             dependencies: ["VentusCore", "VentusIPC"],
             path: "Sources/VentusApp",

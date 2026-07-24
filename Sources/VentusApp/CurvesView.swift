@@ -472,10 +472,24 @@ private struct CurvePlot: View {
                         }
                         .frame(width: 11, height: 11)
                         .position(marker)
+                    // Below the marker, along the dashed drop line — above it
+                    // the label collides with the curve. Chip background keeps
+                    // it legible over the hysteresis band.
                     Text("you are here")
                         .font(VentusFont.body(10, weight: .bold))
                         .foregroundStyle(VentusPalette.accentDeep)
-                        .position(x: marker.x, y: max(insets.top + 8, marker.y - 21))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background {
+                            Capsule().fill(VentusPalette.surface.opacity(0.92))
+                        }
+                        .position(
+                            x: min(
+                                max(marker.x, plotRect(proxy.size).minX + 40),
+                                plotRect(proxy.size).maxX - 40
+                            ),
+                            y: min(marker.y + 24, plotRect(proxy.size).maxY - 10)
+                        )
                 }
             }
         }

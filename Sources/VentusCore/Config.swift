@@ -120,24 +120,27 @@ public struct Config: Codable, Equatable {
         config.profiles["performance"] = Profile(
             name: "performance",
             curves: [
+                // "Earlier, stronger cooling" has to be felt: at a typical
+                // working ~50°C this curve already holds ~3700 RPM, where
+                // Balanced sits near 2000 — the audible gap is the product.
                 0: FanCurve(
                     inputMix: [.cpuPerf: 0.6, .gpu: 0.3, .soc: 0.1],
                     points: [
-                        CurvePoint(temp: 30, rpm: 2000),
-                        CurvePoint(temp: 45, rpm: 2500),
-                        CurvePoint(temp: 60, rpm: 3500),
-                        CurvePoint(temp: 75, rpm: 5000),
-                        CurvePoint(temp: 90, rpm: 6800),
+                        CurvePoint(temp: 30, rpm: 2400),
+                        CurvePoint(temp: 45, rpm: 3400),
+                        CurvePoint(temp: 55, rpm: 4400),
+                        CurvePoint(temp: 65, rpm: 5500),
+                        CurvePoint(temp: 80, rpm: 6800),
                     ]
                 ),
                 1: FanCurve(
                     inputMix: [.cpuPerf: 0.5, .cpuEff: 0.35, .gpu: 0.15],
                     points: [
-                        CurvePoint(temp: 30, rpm: 1800),
-                        CurvePoint(temp: 45, rpm: 2300),
-                        CurvePoint(temp: 60, rpm: 3300),
-                        CurvePoint(temp: 75, rpm: 4800),
-                        CurvePoint(temp: 90, rpm: 6500),
+                        CurvePoint(temp: 30, rpm: 2200),
+                        CurvePoint(temp: 45, rpm: 3200),
+                        CurvePoint(temp: 55, rpm: 4200),
+                        CurvePoint(temp: 65, rpm: 5200),
+                        CurvePoint(temp: 80, rpm: 6500),
                     ]
                 ),
             ],

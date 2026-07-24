@@ -142,9 +142,10 @@ struct PopoverView: View {
                 actionError = ok ? nil : "Couldn't verify fans back to Apple auto — check the daemon log."
             }
         } else if !controlAuthorized {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                pendingProfile = key
-            }
+            // No animation: animated height changes feed preferredContentSize →
+            // window resize → constraint re-layout in a loop until the stack
+            // overflows (reproduced by clicking Perf unauthorized).
+            pendingProfile = key
         } else {
             pendingProfile = nil
             enqueueAction { gen in await activate(key, generation: gen) }
@@ -287,7 +288,7 @@ struct PopoverView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 8) {
                 Button {
-                    withAnimation { pendingProfile = nil }
+                    pendingProfile = nil
                 } label: {
                     Text("Not now").frame(maxWidth: .infinity)
                 }

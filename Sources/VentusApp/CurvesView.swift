@@ -480,7 +480,12 @@ private struct CurvePlot: View {
                                     }
                                 }
                                 .onEnded { _ in
-                                    if pointPendingRemoval == index, points.count > 2 {
+                                    // indices.contains guards a stale captured
+                                    // index after another removal shifted the
+                                    // array (out-of-bounds trap otherwise).
+                                    if pointPendingRemoval == index,
+                                       points.indices.contains(index),
+                                       points.count > 2 {
                                         points.remove(at: index)
                                     }
                                     pointPendingRemoval = nil
@@ -488,7 +493,7 @@ private struct CurvePlot: View {
                         )
                         .simultaneousGesture(
                             TapGesture(count: 2).onEnded {
-                                if points.count > 2 {
+                                if points.indices.contains(index), points.count > 2 {
                                     points.remove(at: index)
                                 }
                             }

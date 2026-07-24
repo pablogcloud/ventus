@@ -13,9 +13,15 @@ struct PopoverView: View {
     @State private var actionError: String?
     @Environment(\.openWindow) private var openWindow
 
-    private static let debugEnabled = FileManager.default.fileExists(
-        atPath: NSString(string: "~/.ventus-debug").expandingTildeInPath
-    )
+    // Same token gate as AppDelegate's debug observer: the command must carry
+    // the secret from ~/.ventus-debug, re-validated per event.
+    private static let debugTokenPath = NSString(string: "~/.ventus-debug").expandingTildeInPath
+    private static let debugToken: String? = {
+        guard let token = try? String(contentsOfFile: debugTokenPath, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !token.isEmpty else { return nil }
+        return token
+    }()
 
     var body: some View {
         Group {
@@ -43,9 +49,12 @@ struct PopoverView: View {
             DistributedNotificationCenter.default()
                 .publisher(for: Notification.Name("com.formm.ventus.debug.command"))
         ) { note in
-            if Self.debugEnabled, note.object as? String == "openMain" {
-                openMainWindow()
-            }
+            guard let token = Self.debugToken,
+                  note.object as? String == "\(token):openMain",
+                  (try? String(contentsOfFile: Self.debugTokenPath, encoding: .utf8))?
+                      .trimmingCharacters(in: .whitespacesAndNewlines) == token
+            else { return }
+            openMainWindow()
         }
     }
 

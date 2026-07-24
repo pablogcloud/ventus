@@ -192,10 +192,14 @@ public final class CurveEngine {
             }
         }
 
-        // If no requested groups are present, fail HOT: use the hottest
-        // available sensor rather than 0, which would pin the curve at its
-        // minimum RPM while the machine could be cooking.
+        // If no requested groups are present, fail HOT — but prefer die
+        // sensors: battery/NAND/board temps tracking ambient must not drive
+        // the curve when a die group is available.
         guard appliedWeight > 0 else {
+            let dieGroups: [SensorGroup] = [.cpuPerf, .cpuEff, .gpu, .soc]
+            if let dieMax = dieGroups.compactMap({ smoothedSensors[$0] }).max() {
+                return dieMax
+            }
             return smoothedSensors.values.max() ?? 0
         }
 

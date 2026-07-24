@@ -33,7 +33,7 @@ deferred finding is the XPC code-sign check below.
 
 1. **Deploy the daemon fix**: the installed root ventusd predates the
    HardwareOwner fix. Run `bash scripts/install.sh` (needs admin). Until then
-   disarm may still report the spurious verify error (fans DO revert — verified
+   [RESOLVED — daemon reinstalled with the fix] (fans DO revert — verified
    in ventusd.log: F0Md/F1Md=0 written, RPMs back to idle).
 2. **/Applications/Ventus.app is a STALE root-owned copy** (couldn't replace
    without admin). Current app: `~/Applications/Ventus.app`. Either
@@ -73,3 +73,11 @@ click each confirms them. Menu-bar dual readout `58·59°` unverified visually �
 the status item lives in menu-bar overflow on this crowded bar.
 
 Fans are SAFE: mode observe, Apple auto, idle RPMs.
+
+## Daemon redeploy pending (minor)
+
+The installed daemon includes the fail-hot blendInputs fallback but NOT the
+die-groups-first refinement from the last review round (battery/board sensors
+preferred over nothing, die sensors preferred over battery). Rare edge (only
+fires when every weighted sensor group is absent). Pick it up on the next
+`sudo bash scripts/install.sh`.

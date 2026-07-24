@@ -646,12 +646,23 @@ private struct CurvePlot: View {
 
     private func drawCurve(context: inout GraphicsContext, rect: CGRect) {
         guard let first = points.first, let last = points.last else { return }
-        let plotPoints = points.map { plotPoint($0, rect: rect) }
+        // The engine clamps flat outside the defined points (first RPM below
+        // the first temp, last RPM above the last), so the drawn curve spans
+        // the full plot with flat extensions to both edges.
+        var plotPoints = points.map { plotPoint($0, rect: rect) }
+        let firstPlot = plotPoint(first, rect: rect)
+        let lastPlot = plotPoint(last, rect: rect)
+        if firstPlot.x > rect.minX + 0.5 {
+            plotPoints.insert(CGPoint(x: rect.minX, y: firstPlot.y), at: 0)
+        }
+        if lastPlot.x < rect.maxX - 0.5 {
+            plotPoints.append(CGPoint(x: rect.maxX, y: lastPlot.y))
+        }
         let line = smoothPath(through: plotPoints)
 
         var area = line
-        area.addLine(to: CGPoint(x: plotPoint(last, rect: rect).x, y: rect.maxY))
-        area.addLine(to: CGPoint(x: plotPoint(first, rect: rect).x, y: rect.maxY))
+        area.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        area.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
         area.closeSubpath()
         context.fill(area, with: .color(VentusPalette.accent.opacity(0.06)))
         context.stroke(

@@ -1,3 +1,0 @@
-module VentusIPC {
-    header "/Users/pablo/Projects/ventus/.build/arm64-apple-macosx/debug/VentusIPC.build/include/VentusIPC-Swift.h"
-}

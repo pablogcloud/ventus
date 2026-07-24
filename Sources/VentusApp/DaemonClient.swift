@@ -384,6 +384,14 @@ struct TelemetrySnapshot: Codable, Sendable {
     let explanations: [Explanation]
     let version: String
     let fanControlAvailable: Bool?
+    /// Individual sensor readings (per-tile die heat map). Optional: older
+    /// daemons don't send it.
+    var sensorTemps: [SensorTemp]? = nil
+
+    struct SensorTemp: Codable, Sendable {
+        let group: String
+        let celsius: Double
+    }
 
     var isFanControlAvailable: Bool {
         fanControlAvailable ?? true
@@ -397,5 +405,11 @@ extension TelemetrySnapshot {
 
     var hottestTemperature: Double? {
         sensors.map(\.maxTemp).max()
+    }
+
+    /// All individual readings for a sensor group (empty when the daemon
+    /// predates per-sensor telemetry).
+    func temps(for groupName: String) -> [Double] {
+        sensorTemps?.filter { $0.group == groupName }.map(\.celsius) ?? []
     }
 }

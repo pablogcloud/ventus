@@ -44,6 +44,19 @@ enum VentusPalette {
         (85, solid(0xCF4B39)),
     ]
 
+    /// Maps a temperature onto the thermal gradient normalized to `range`
+    /// instead of the absolute 40–85° span — a narrow live range makes the
+    /// hottest component visibly stand out even when everything sits within
+    /// a few degrees. Absolute overheat (≥85°C) always reads hot-red.
+    static func adaptiveThermal(_ temperature: Double, range: ClosedRange<Double>) -> Color {
+        if temperature >= 85 { return hot }
+        let span = max(range.upperBound - range.lowerBound, 0.001)
+        let fraction = min(max((temperature - range.lowerBound) / span, 0), 1)
+        let scaleLow = thermalStops.first!.temperature
+        let scaleHigh = thermalStops.last!.temperature
+        return thermal(scaleLow + fraction * (scaleHigh - scaleLow))
+    }
+
     static func thermal(_ temperature: Double) -> Color {
         let clamped = min(max(temperature, thermalStops[0].temperature), thermalStops.last!.temperature)
         for index in 0..<(thermalStops.count - 1) {

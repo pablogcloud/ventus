@@ -362,7 +362,9 @@ public struct EngineParams: Codable, Equatable {
     public var maxSlewRateRPMPerS: Double = 300.0
 
     /// Tick rate when cool and idle (seconds).
-    public var coolIdleTickS: Double = 5.0
+    // 2s, matching the app's poll: telemetry publishes per control tick, and a
+    // 5s idle tick made the heat map visibly stale between updates.
+    public var coolIdleTickS: Double = 2.0
 
     /// Tick rate when hot or loaded (seconds).
     public var hotLoadedTickS: Double = 1.0

@@ -90,9 +90,19 @@ public final class SensorReader: @unchecked Sendable {
     /// Takes a snapshot of current temperature readings, aggregated by sensor group.
     /// Returns an empty dictionary if sensor access fails (graceful degradation).
     public func snapshot() -> [SensorGroup: GroupReading] {
+        detailedSnapshot().groups
+    }
+
+    /// Aggregates plus every individual reading (group, °C) — the UI's die heat
+    /// map tints per-sensor tiles from the detail list.
+    public func detailedSnapshot() -> (
+        groups: [SensorGroup: GroupReading],
+        details: [(group: SensorGroup, celsius: Double)]
+    ) {
         queue.sync {
             initializeIfNeeded()
 
+            var details: [(group: SensorGroup, celsius: Double)] = []
             var groups: [SensorGroup: [Double]] = [:]
             for (name, service) in services {
                 guard let event = IOHIDServiceClientCopyEvent(
@@ -106,6 +116,7 @@ public final class SensorReader: @unchecked Sendable {
                 guard celsius > -40, celsius < 130, celsius != 0 else { continue }
                 guard let group = classifySensor(name) else { continue }
                 groups[group, default: []].append(celsius)
+                details.append((group: group, celsius: celsius))
             }
 
             var result: [SensorGroup: GroupReading] = [:]
@@ -114,7 +125,7 @@ public final class SensorReader: @unchecked Sendable {
                 let meanT = temps.reduce(0, +) / Double(temps.count)
                 result[group] = GroupReading(max: maxT, mean: meanT, count: temps.count)
             }
-            return result
+            return (groups: result, details: details)
         }
     }
 

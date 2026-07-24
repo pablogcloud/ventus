@@ -88,6 +88,28 @@ struct DashboardTabView: View {
 private struct DieHeatMap: View {
     let status: TelemetrySnapshot
 
+    /// Adaptive color range across the die sensors: narrow live span so the
+    /// hottest region visibly stands out. Widened to ≥6°C around its midpoint
+    /// so a thermally uniform idle die doesn't amplify noise into fake
+    /// hotspots.
+    private var dieRange: ClosedRange<Double> {
+        let dieTemps = ["cpu_perf", "cpu_eff", "gpu", "soc"].flatMap { status.temps(for: $0) }
+        guard let low = dieTemps.min(), let high = dieTemps.max() else {
+            return 40 ... 85
+        }
+        let mid = (low + high) / 2
+        let halfSpan = max((high - low) / 2, 3)
+        return (mid - halfSpan) ... (mid + halfSpan)
+    }
+
+    private var legendText: String {
+        let dieTemps = ["cpu_perf", "cpu_eff", "gpu", "soc"].flatMap { status.temps(for: $0) }
+        guard let low = dieTemps.min(), let high = dieTemps.max() else {
+            return "40°→85°"
+        }
+        return String(format: "%.0f°→%.0f°", low, high)
+    }
+
     var body: some View {
         VStack(spacing: 12) {
             VentusSectionHeader(
@@ -120,6 +142,8 @@ private struct DieHeatMap: View {
                     DieRegion(
                         name: "P-CORES",
                         temperature: status.temperature(for: "cpu_perf"),
+                        temps: status.temps(for: "cpu_perf"),
+                        range: dieRange,
                         tileColumns: 4,
                         tileRows: 2
                     )
@@ -129,6 +153,8 @@ private struct DieHeatMap: View {
                     DieRegion(
                         name: "E-CORES",
                         temperature: status.temperature(for: "cpu_perf"),
+                        temps: status.temps(for: "cpu_perf"),
+                        range: dieRange,
                         tileColumns: 4,
                         tileRows: 1,
                         annotation: "shared"
@@ -139,6 +165,8 @@ private struct DieHeatMap: View {
                     DieRegion(
                         name: "GPU",
                         temperature: status.temperature(for: "gpu"),
+                        temps: status.temps(for: "gpu"),
+                        range: dieRange,
                         tileColumns: 6,
                         tileRows: 4
                     )
@@ -148,6 +176,8 @@ private struct DieHeatMap: View {
                     DieRegion(
                         name: "NEURAL",
                         temperature: nil,
+                        temps: [],
+                        range: dieRange,
                         tileColumns: 3,
                         tileRows: 1,
                         annotation: "no sensor"
@@ -158,6 +188,8 @@ private struct DieHeatMap: View {
                     DieRegion(
                         name: "SOC · MEDIA",
                         temperature: status.temperature(for: "soc"),
+                        temps: status.temps(for: "soc"),
+                        range: dieRange,
                         tileColumns: 3,
                         tileRows: 1
                     )
@@ -182,7 +214,7 @@ private struct DieHeatMap: View {
                 Text("Hotter")
                     .font(VentusFont.body(11))
                     .foregroundStyle(VentusPalette.ink3)
-                Text("40°→85°")
+                Text(legendText)
                     .font(VentusFont.number(11, weight: .medium))
                     .foregroundStyle(VentusPalette.ink3)
             }
@@ -206,9 +238,32 @@ private struct DieHeatMap: View {
 private struct DieRegion: View {
     let name: String
     let temperature: Double?
+    /// Individual sensor readings for this region; tiles tint per sensor.
+    let temps: [Double]
+    /// Adaptive color range shared across the whole die.
+    let range: ClosedRange<Double>
     let tileColumns: Int
     let tileRows: Int
     var annotation: String?
+
+    /// One value per tile: bucket-averaged when there are more sensors than
+    /// tiles (SoC's 11-sensor grid), cycled when there are fewer, nil when
+    /// the region has no per-sensor data (falls back to the region color).
+    private func tileTemps(count: Int) -> [Double?] {
+        guard !temps.isEmpty else {
+            return Array(repeating: temperature, count: count)
+        }
+        if temps.count >= count {
+            let bucketSize = Double(temps.count) / Double(count)
+            return (0 ..< count).map { i in
+                let start = Int(Double(i) * bucketSize)
+                let end = max(start + 1, Int(Double(i + 1) * bucketSize))
+                let bucket = temps[start ..< min(end, temps.count)]
+                return bucket.reduce(0, +) / Double(bucket.count)
+            }
+        }
+        return (0 ..< count).map { temps[$0 % temps.count] }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -238,11 +293,14 @@ private struct DieRegion: View {
                     / CGFloat(tileColumns)
                 let tileHeight = (proxy.size.height - CGFloat(tileRows - 1) * spacing)
                     / CGFloat(tileRows)
-                let fill = temperature.map { VentusPalette.thermal($0) }
+                let values = tileTemps(count: tileRows * tileColumns)
                 VStack(spacing: spacing) {
-                    ForEach(0..<tileRows, id: \.self) { _ in
+                    ForEach(0..<tileRows, id: \.self) { row in
                         HStack(spacing: spacing) {
-                            ForEach(0..<tileColumns, id: \.self) { _ in
+                            ForEach(0..<tileColumns, id: \.self) { column in
+                                let fill = values[row * tileColumns + column].map {
+                                    VentusPalette.adaptiveThermal($0, range: range)
+                                }
                                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                                     .fill(fill?.opacity(0.72) ?? VentusPalette.surface3.opacity(0.5))
                                     .overlay {

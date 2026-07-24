@@ -19,6 +19,11 @@ struct TelemetrySnapshot: Codable, Sendable {
         let count: Int
     }
 
+    struct SensorTemp: Codable, Sendable {
+        let group: String
+        let celsius: Double
+    }
+
     struct Explanation: Codable, Sendable {
         let fan: Int
         let targetRPM: Double
@@ -38,6 +43,9 @@ struct TelemetrySnapshot: Codable, Sendable {
     /// False on fanless Macs (e.g. MacBook Air): the app is monitor-only there.
     /// Optional so older clients that omit it default to true (fan-equipped).
     var fanControlAvailable: Bool? = true
+    /// Every individual sensor reading (per-tile die heat map). Optional so
+    /// old client/daemon pairings keep decoding.
+    var sensorTemps: [SensorTemp]? = nil
 }
 
 // MARK: - Global Logger
@@ -116,6 +124,7 @@ final class DaemonState {
 
     /// FIX #5: store a fully-formed snapshot (called only from the control loop).
     func publish(sensors: [SensorGroup: GroupReading],
+                 sensorDetails: [(group: SensorGroup, celsius: Double)] = [],
                  power: PowerReader.PowerReading?,
                  fanActuals: [Int: Double],
                  explanations: [CurveEngine.Explanation],
@@ -137,7 +146,10 @@ final class DaemonState {
             uptime: Date().timeIntervalSince(startTime),
             sensors: sensorInfos, fans: fanInfos,
             packageWatts: power?.totalW, explanations: exps, version: "1.0.0",
-            fanControlAvailable: fanControlAvailable
+            fanControlAvailable: fanControlAvailable,
+            sensorTemps: sensorDetails.map {
+                TelemetrySnapshot.SensorTemp(group: $0.group.rawValue, celsius: $0.celsius)
+            }
         )
         snapshotLock.withLock { publishedSnapshot = snap }
     }
@@ -333,7 +345,7 @@ class DaemonController {
         }
 
         // Read hardware
-        let sensors = state.sensorReader.snapshot()
+        let (sensors, sensorDetails) = state.sensorReader.detailedSnapshot()
         let power = state.powerReader.readPower()
         let fanCount = state.smcClient?.listFanCount() ?? 2
 
@@ -417,7 +429,7 @@ class DaemonController {
         }
 
         // FIX #5: publish an immutable snapshot; readers never touch live state.
-        state.publish(sensors: sensors, power: power, fanActuals: fanActuals,
+        state.publish(sensors: sensors, sensorDetails: sensorDetails, power: power, fanActuals: fanActuals,
                       explanations: explanations, activeRule: nil)
 
         return state.curveEngine.suggestedTickS
@@ -624,7 +636,7 @@ class DaemonController {
         state.cpuWatchdog.recordSample(rusageSecs, at: now)
 
         // Read hardware
-        let sensors = state.sensorReader.snapshot()
+        let (sensors, sensorDetails) = state.sensorReader.detailedSnapshot()
         let power = state.powerReader.readPower()
         let fanCount = state.smcClient?.listFanCount() ?? 2
 
@@ -657,7 +669,7 @@ class DaemonController {
         )
 
         // Publish snapshot (dry-run performs NO SMC writes).
-        state.publish(sensors: sensors, power: power, fanActuals: fanActuals,
+        state.publish(sensors: sensors, sensorDetails: sensorDetails, power: power, fanActuals: fanActuals,
                       explanations: explanations, activeRule: nil)
         return state.getSnapshot()
     }

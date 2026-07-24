@@ -71,13 +71,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.statusItem = item
 
-        // Debug hook: lets local tooling open UI surfaces when accessibility
-        // clicking is unavailable. Requires ~/.ventus-debug to contain a
-        // non-empty secret token, and every command must carry it
-        // ("<token>:<command>") — an unauthenticated distributed notification
-        // must never be able to synthesize clicks that reach the arm flow.
-        // The file is also re-checked per event so deleting it takes effect
-        // immediately.
+        #if DEBUG
+        // Debug hook (DEBUG builds only — compiled out of release entirely):
+        // lets local tooling drive UI surfaces when accessibility clicking is
+        // unavailable. Requires ~/.ventus-debug to contain a non-empty secret
+        // token, every command must carry it ("<token>:<command>"), and the
+        // file is re-checked per event so deleting it takes effect immediately.
         let debugTokenPath = NSString(string: "~/.ventus-debug").expandingTildeInPath
         if let launchToken = try? String(contentsOfFile: debugTokenPath, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -146,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        #endif
 
         // Close the panel whenever another window (e.g. the main window) takes
         // key — clicks inside our own windows don't hit the global monitor.
@@ -213,9 +213,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePanel(_ sender: NSStatusBarButton) {
+        #if DEBUG
         // An explicit user toggle always wins: clear any debug pin so the
         // panel can never be left stuck open on the user's screen.
         debugPinned = false
+        #endif
         if panel?.isVisible == true {
             closePanel()
         } else {
@@ -246,7 +248,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func closePanel() {
+        #if DEBUG
         if debugPinned { return }
+        #endif
         panel?.orderOut(nil)
         if let clickMonitor {
             NSEvent.removeMonitor(clickMonitor)
@@ -308,12 +312,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Screen-space Y of the panel's top edge, fixed while the panel is shown.
     private var panelTopY: CGFloat?
 
+    #if DEBUG
     /// Debug-only: while true, the panel ignores its transient auto-close
     /// triggers so UI testing doesn't race the user's foreground activity.
     private var debugPinned = false
+    #endif
 
-    // MARK: - Debug-hook click synthesis (active only with ~/.ventus-debug)
+    // MARK: - Debug-hook click synthesis (DEBUG builds only)
 
+    #if DEBUG
     private static func parsePoint(_ command: String) -> NSPoint {
         let nums = command.split(separator: ":").last?
             .split(separator: ",")
@@ -420,6 +427,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? lines.joined(separator: "\n").appending("\n")
             .write(toFile: "/tmp/ventus-frames.txt", atomically: true, encoding: .utf8)
     }
+    #endif
 
     private func positionPanel(_ panel: NSPanel) {
         if let contentView = panel.contentViewController?.view {

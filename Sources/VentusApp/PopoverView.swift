@@ -13,8 +13,10 @@ struct PopoverView: View {
     @State private var actionError: String?
     @Environment(\.openWindow) private var openWindow
 
+    #if DEBUG
     // Same token gate as AppDelegate's debug observer: the command must carry
-    // the secret from ~/.ventus-debug, re-validated per event.
+    // the secret from ~/.ventus-debug, re-validated per event. DEBUG only —
+    // compiled out of release builds.
     private static let debugTokenPath = NSString(string: "~/.ventus-debug").expandingTildeInPath
     private static let debugToken: String? = {
         guard let token = try? String(contentsOfFile: debugTokenPath, encoding: .utf8)
@@ -22,6 +24,7 @@ struct PopoverView: View {
             !token.isEmpty else { return nil }
         return token
     }()
+    #endif
 
     var body: some View {
         Group {
@@ -41,17 +44,28 @@ struct PopoverView: View {
                 pendingProfile = nil
             }
         }
-        .onReceive(
-            DistributedNotificationCenter.default()
-                .publisher(for: Notification.Name("com.formm.ventus.debug.command"))
-        ) { note in
-            guard let token = Self.debugToken,
-                  note.object as? String == "\(token):openMain",
-                  (try? String(contentsOfFile: Self.debugTokenPath, encoding: .utf8))?
-                      .trimmingCharacters(in: .whitespacesAndNewlines) == token
-            else { return }
-            openMainWindow()
-        }
+        .background(debugOpenMainListener)
+    }
+
+    /// DEBUG-only listener for the tooling openMain command; empty in release.
+    @ViewBuilder
+    private var debugOpenMainListener: some View {
+        #if DEBUG
+        Color.clear
+            .onReceive(
+                DistributedNotificationCenter.default()
+                    .publisher(for: Notification.Name("com.formm.ventus.debug.command"))
+            ) { note in
+                guard let token = Self.debugToken,
+                      note.object as? String == "\(token):openMain",
+                      (try? String(contentsOfFile: Self.debugTokenPath, encoding: .utf8))?
+                          .trimmingCharacters(in: .whitespacesAndNewlines) == token
+                else { return }
+                openMainWindow()
+            }
+        #else
+        EmptyView()
+        #endif
     }
 
     private func connectedContent(_ status: TelemetrySnapshot) -> some View {

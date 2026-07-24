@@ -49,19 +49,17 @@ deferred finding is the XPC code-sign check below.
    brief arm/disarm cycles during testing behaved correctly, fans left SAFE —
    mode observe, Apple auto).
 
-## Debug hook (for future sessions without accessibility)
+## Debug hook (DEBUG builds only since the ship-cleanup commit)
 
-Token-gated since f6394ac: `~/.ventus-debug` must contain a secret token
+The entire debug harness (token-gated distributed-notification commands,
+click/drag/scroll synthesis, frames dump, panel pin, ~/ventus-app-debug.log)
+is now compiled out of release builds — `strings` on the shipped binary finds
+no trace, verified. To use it in a future session: `swift build --product
+VentusApp` (debug config), run the debug binary directly, recreate the token
 (`python3 -c "import secrets; print(secrets.token_hex(16))" > ~/.ventus-debug`,
-chmod 600) and every notification object must be `"<token>:<command>"`.
-Commands: `showPopover` / `hidePopover` / `openMain` / `frames` / `pin` /
-`unpin` / `click:x,y` / `clickmain:x,y` / `dragmain:x1,y1,x2,y2` /
-`scrollmain:x,y,dy` (coords = window top-left points; openMain requires the
-panel to have been shown once). Post via:
-`osascript -l JavaScript -e 'ObjC.import("Foundation"); $.NSDistributedNotificationCenter.defaultCenter.postNotificationNameObjectUserInfoDeliverImmediately("com.formm.ventus.debug.command", "TOKEN:showPopover", $(), true);'`
-Screenshots work via the Control-your-Mac MCP (`do shell script "screencapture …"`).
-**Delete `~/.ventus-debug` for daily use** — with it present, any same-user
-process that reads the token can drive the UI including the arm flow.
+chmod 600), and post `"<token>:<command>"` notifications as before. Window-ID
+screenshots (`swift /tmp/winid.swift`-style CGWindowList lookup +
+`screencapture -l<id>`) work regardless of build type and across Spaces.
 
 ## Still unverified by real clicks
 

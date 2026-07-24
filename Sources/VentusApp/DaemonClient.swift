@@ -5,11 +5,16 @@ import os.log
 
 let appLog = Logger(subsystem: "com.formm.ventus.app", category: "client")
 
-// Debug: also write to a readable file (os_log isn't captured for this ad-hoc app).
+// Debug builds only: also write to a readable file (os_log isn't captured for
+// this ad-hoc app). Release builds ship with this compiled to a no-op.
 enum DebugFile {
+    #if DEBUG
     static let url = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("ventus-app-debug.log")
+    #endif
+
     static func write(_ s: String) {
+        #if DEBUG
         let line = "\(Date().timeIntervalSince1970) \(s)\n"
         guard let d = line.data(using: .utf8) else { return }
         if let fh = try? FileHandle(forWritingTo: url) {
@@ -17,6 +22,7 @@ enum DebugFile {
         } else {
             try? d.write(to: url)
         }
+        #endif
     }
 }
 

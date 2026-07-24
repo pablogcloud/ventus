@@ -36,6 +36,17 @@ struct CurvesTabView: View {
         }
     }
 
+    /// Profiles whose curves are editable (auto-apple has none), in canonical
+    /// order.
+    private func editableProfiles(in config: EditableConfig) -> [String] {
+        let order = ["quiet", "balanced", "performance"]
+        let named = order.filter { config.profiles[$0]?.curves.isEmpty == false }
+        let extras = config.profiles
+            .filter { !$0.value.curves.isEmpty && !order.contains($0.key) }
+            .keys.sorted()
+        return named + extras
+    }
+
     private func editor(draft: EditableConfig, profile: EditableProfile) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline) {
@@ -43,13 +54,39 @@ struct CurvesTabView: View {
                     Text("Temperature → RPM curves")
                         .font(VentusFont.display(20, weight: .bold))
                         .foregroundStyle(VentusPalette.ink)
-                    Text("Editing the \(ventusProfileTitle(profileName)) profile")
-                        .font(VentusFont.body(12))
-                        .foregroundStyle(VentusPalette.ink2)
+                    Text(
+                        profileName == observer.status?.activeProfile
+                            ? "Editing the \(ventusProfileTitle(profileName)) profile (active)"
+                            : "Editing the \(ventusProfileTitle(profileName)) profile"
+                    )
+                    .font(VentusFont.body(12))
+                    .foregroundStyle(VentusPalette.ink2)
                 }
                 Spacer()
                 livePill(profile)
             }
+
+            // Any predetermined profile is editable, not just the active one.
+            // The draft holds the WHOLE config, so unsaved edits survive
+            // switching between profiles; Apply commits them all at once.
+            HStack(spacing: 4) {
+                ForEach(editableProfiles(in: draft), id: \.self) { name in
+                    VentusSegmentButton(
+                        title: ventusProfileTitle(name),
+                        isSelected: profileName == name,
+                        action: {
+                            profileName = name
+                            if draft.profiles[name]?.curves[selectedFan] == nil {
+                                selectedFan = draft.profiles[name]?.curves.keys.sorted().first ?? 0
+                            }
+                            feedback = nil
+                        }
+                    )
+                }
+            }
+            .padding(3)
+            .frame(maxWidth: 360)
+            .ventusGlass(radius: 9)
 
             VStack(alignment: .leading, spacing: 14) {
                 HStack {

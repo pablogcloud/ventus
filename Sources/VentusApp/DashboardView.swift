@@ -135,13 +135,15 @@ private struct DieHeatMap: View {
                                 .stroke(VentusPalette.border, lineWidth: 1)
                         }
 
+                    // Align with the region grid's left edge (P-CORES box
+                    // starts at 6.5% width), not the container edge.
                     Text("\(chip.name.uppercased()) · \(chip.pCores)P+\(chip.eCores)E · \(chip.gpuCores)-CORE GPU")
                         .font(VentusFont.number(9, weight: .semibold))
                         .tracking(0.6)
                         .foregroundStyle(VentusPalette.ink3)
                         .lineLimit(1)
-                        .frame(width: width, alignment: .leading)
-                        .position(x: width / 2, y: height * 0.035)
+                        .frame(width: width * 0.87, alignment: .leading)
+                        .position(x: width / 2, y: height * 0.05)
 
                     // Sensor reality on this die (validated via sensordump):
                     // one shared CPU-cluster sensor set (E-cores have no
@@ -181,7 +183,8 @@ private struct DieHeatMap: View {
                         temps: status.temps(for: "gpu"),
                         range: dieRange,
                         tileColumns: gpuGrid.columns,
-                        tileRows: gpuGrid.rows
+                        tileRows: gpuGrid.rows,
+                        tileCount: chip.gpuCores
                     )
                     .frame(width: width * 0.357, height: height * 0.77)
                     .position(x: width * 0.521, y: height * 0.5)
@@ -258,6 +261,9 @@ private struct DieRegion: View {
     let tileColumns: Int
     let tileRows: Int
     var annotation: String?
+    /// Exact number of real units (cores); grid cells beyond this render
+    /// empty so a 38-core GPU shows 38 tiles in an 8×5 grid, not 40.
+    var tileCount: Int?
 
     /// One value per tile: bucket-averaged when there are more sensors than
     /// tiles (SoC's 11-sensor grid), cycled when there are fewer, nil when
@@ -311,19 +317,25 @@ private struct DieRegion: View {
                     ForEach(0..<tileRows, id: \.self) { row in
                         HStack(spacing: spacing) {
                             ForEach(0..<tileColumns, id: \.self) { column in
-                                let fill = values[row * tileColumns + column].map {
-                                    VentusPalette.adaptiveThermal($0, range: range)
-                                }
-                                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                    .fill(fill?.opacity(0.72) ?? VentusPalette.surface3.opacity(0.5))
-                                    .overlay {
-                                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                            .stroke(
-                                                fill?.opacity(0.9) ?? VentusPalette.borderStrong.opacity(0.6),
-                                                lineWidth: 1
-                                            )
+                                let index = row * tileColumns + column
+                                if let tileCount, index >= tileCount {
+                                    Color.clear
+                                        .frame(width: max(tileWidth, 4), height: max(tileHeight, 4))
+                                } else {
+                                    let fill = values[index].map {
+                                        VentusPalette.adaptiveThermal($0, range: range)
                                     }
-                                    .frame(width: max(tileWidth, 4), height: max(tileHeight, 4))
+                                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                        .fill(fill?.opacity(0.72) ?? VentusPalette.surface3.opacity(0.5))
+                                        .overlay {
+                                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                                .stroke(
+                                                    fill?.opacity(0.9) ?? VentusPalette.borderStrong.opacity(0.6),
+                                                    lineWidth: 1
+                                                )
+                                        }
+                                        .frame(width: max(tileWidth, 4), height: max(tileHeight, 4))
+                                }
                             }
                         }
                     }

@@ -230,6 +230,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // must not steal focus from the frontmost app. KeyablePanel overrides
         // canBecomeKey so its controls still take the first click.
         panel.makeKeyAndOrderFront(nil)
+        // The shadow is computed against the window's opaque outline; without
+        // this it can bake in a square outline before the rounded glass lays
+        // out, leaving dark artifacts in the corners.
+        DispatchQueue.main.async { panel.invalidateShadow() }
 
         // Transient behavior: any click outside the panel closes it.
         if clickMonitor == nil {
@@ -294,6 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     frame.origin.y = topY - frame.height
                     panel.setFrame(frame, display: true)
                 }
+                panel.invalidateShadow()
             }
         }
         self.panel = panel

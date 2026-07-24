@@ -852,7 +852,10 @@ extension CurveEngine {
     }
 }
 
-    // MARK: - Additional Tests for Coverage (to reach 40+)
+// MARK: - Additional Tests for Coverage (to reach 40+)
+// (Were stranded at file top level — outside any XCTestCase — since they were
+// written; never discovered or run until this class was added.)
+final class ConfigValidationCoverageTests: XCTestCase {
 
     func testConfigValidation_InvalidHysteresisGap() {
         let profile = Profile(
@@ -896,3 +899,4 @@ extension CurveEngine {
         )
         XCTAssertNoThrow(try powerCurve.validate())
     }
+}

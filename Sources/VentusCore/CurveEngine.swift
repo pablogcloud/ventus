@@ -192,8 +192,12 @@ public final class CurveEngine {
             }
         }
 
-        // If no requested groups were present, return 0 (not a blended average of missing data)
-        guard appliedWeight > 0 else { return 0 }
+        // If no requested groups are present, fail HOT: use the hottest
+        // available sensor rather than 0, which would pin the curve at its
+        // minimum RPM while the machine could be cooking.
+        guard appliedWeight > 0 else {
+            return smoothedSensors.values.max() ?? 0
+        }
 
         return weighted / appliedWeight
     }

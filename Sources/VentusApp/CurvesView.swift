@@ -55,7 +55,7 @@ struct CurvesTabView: View {
                 HStack {
                     fanSelector(profile)
                     Spacer()
-                    Text("Drag any point to stage a change")
+                    Text("Drag points · click the plot to add · drag off or double-click to remove")
                         .font(VentusFont.body(11))
                         .foregroundStyle(VentusPalette.ink3)
                 }
@@ -336,9 +336,18 @@ struct CurvesTabView: View {
     }
 
     private func sensorGroups(for curve: EditableFanCurve) -> [String] {
-        let preferred = ["cpu_perf", "cpu_eff", "gpu", "soc"]
+        // Only offer sensor groups that exist on this Mac (plus any group the
+        // stored mix already weights) — a slider for a never-present group
+        // (e.g. cpu_eff on machines without a separate E-core sensor) silently
+        // contributes nothing.
+        let preferredOrder = ["cpu_perf", "cpu_eff", "gpu", "soc"]
+        let present = Set(observer.status?.sensors.map(\.groupName) ?? [])
+        func visible(_ group: String) -> Bool {
+            present.contains(group) || (curve.inputMix[group] ?? 0) > 0
+        }
+        let preferred = preferredOrder.filter(visible)
         let extras = curve.inputMix.keys
-            .filter { !preferred.contains($0) }
+            .filter { !preferredOrder.contains($0) && visible($0) }
             .sorted()
         return preferred + extras
     }
@@ -378,6 +387,13 @@ private struct CurvePlot: View {
     let currentRPM: Double?
     let hysteresisGap: Double
     @State private var hoveredPoint: Int?
+    /// Index of a point currently dragged outside the plot (armed for removal
+    /// on release, Photoshop-style).
+    @State private var pointPendingRemoval: Int?
+
+    private static let maxPoints = 8
+    /// Distance beyond the plot edge that arms removal.
+    private static let removalMargin: CGFloat = 30
 
     private let insets = EdgeInsets(top: 20, leading: 48, bottom: 34, trailing: 18)
 
@@ -403,28 +419,42 @@ private struct CurvePlot: View {
                     drawHysteresis(context: &context, rect: rect)
                     drawCurve(context: &context, rect: rect)
                 }
+                .contentShape(Rectangle())
+                .gesture(
+                    SpatialTapGesture(coordinateSpace: .named("plot"))
+                        .onEnded { addPoint(at: $0.location, size: proxy.size) }
+                )
 
                 axisLabels(size: proxy.size)
 
+                // Hit-testing order is load-bearing: contentShape and gestures
+                // must be applied to the SMALL dot view BEFORE .position — after
+                // .position they bind to the full-plot wrapper and the grab
+                // targets land in the wrong place entirely.
                 ForEach(points.indices, id: \.self) { index in
                     Circle()
                         .fill(
-                            hoveredPoint == index
-                                ? VentusPalette.accentTint
-                                : VentusPalette.surface
+                            pointPendingRemoval == index
+                                ? VentusPalette.hot.opacity(0.25)
+                                : hoveredPoint == index
+                                    ? VentusPalette.accentTint
+                                    : VentusPalette.surface
                         )
                         .overlay {
                             Circle()
-                                .stroke(VentusPalette.accent, lineWidth: 2.5)
+                                .stroke(
+                                    pointPendingRemoval == index
+                                        ? VentusPalette.hot
+                                        : VentusPalette.accent,
+                                    lineWidth: 2.5
+                                )
                         }
                         .frame(
                             width: hoveredPoint == index ? 16 : 13,
                             height: hoveredPoint == index ? 16 : 13
                         )
                         .shadow(color: VentusPalette.shadow, radius: 3, y: 1)
-                        .position(position(for: points[index], size: proxy.size))
-                        .contentShape(Circle().inset(by: -8))
-                        .animation(.easeOut(duration: 0.12), value: hoveredPoint)
+                        .contentShape(Circle().inset(by: -10))
                         .onHover { isHovering in
                             if isHovering {
                                 hoveredPoint = index
@@ -433,22 +463,45 @@ private struct CurvePlot: View {
                             }
                         }
                         .gesture(
-                            DragGesture(minimumDistance: 0)
-                                .onChanged {
-                                    updatePoint(
-                                        at: index,
-                                        location: $0.location,
-                                        size: proxy.size
-                                    )
+                            DragGesture(minimumDistance: 0, coordinateSpace: .named("plot"))
+                                .onChanged { value in
+                                    let outside = distanceOutsidePlot(
+                                        value.location, size: proxy.size
+                                    ) > Self.removalMargin
+                                    if outside, points.count > 2 {
+                                        pointPendingRemoval = index
+                                    } else {
+                                        pointPendingRemoval = nil
+                                        updatePoint(
+                                            at: index,
+                                            location: value.location,
+                                            size: proxy.size
+                                        )
+                                    }
                                 }
+                                .onEnded { _ in
+                                    if pointPendingRemoval == index, points.count > 2 {
+                                        points.remove(at: index)
+                                    }
+                                    pointPendingRemoval = nil
+                                }
+                        )
+                        .simultaneousGesture(
+                            TapGesture(count: 2).onEnded {
+                                if points.count > 2 {
+                                    points.remove(at: index)
+                                }
+                            }
                         )
                         .help(
                             String(
-                                format: "%.0f°C, %.0f RPM",
+                                format: "%.0f°C, %.0f RPM — double-click to remove",
                                 points[index].temp,
                                 points[index].rpm
                             )
                         )
+                        .animation(.easeOut(duration: 0.12), value: hoveredPoint)
+                        .position(position(for: points[index], size: proxy.size))
                 }
 
                 if let marker = livePosition(size: proxy.size) {
@@ -492,6 +545,7 @@ private struct CurvePlot: View {
                         )
                 }
             }
+            .coordinateSpace(name: "plot")
         }
         .background {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -586,6 +640,41 @@ private struct CurvePlot: View {
         .font(VentusFont.number(10, weight: .medium))
         .foregroundStyle(VentusPalette.ink3)
         .allowsHitTesting(false)
+    }
+
+    /// How far a location sits outside the plot rect (0 when inside).
+    private func distanceOutsidePlot(_ location: CGPoint, size: CGSize) -> CGFloat {
+        let rect = plotRect(size)
+        let dx = max(rect.minX - location.x, location.x - rect.maxX, 0)
+        let dy = max(rect.minY - location.y, location.y - rect.maxY, 0)
+        return max(dx, dy)
+    }
+
+    /// Photoshop-style: click on empty plot area inserts a point at the click,
+    /// clamped into the monotonic envelope of its neighbors.
+    private func addPoint(at location: CGPoint, size: CGSize) {
+        guard points.count < Self.maxPoints else { return }
+        let rect = plotRect(size)
+        guard rect.insetBy(dx: -4, dy: -4).contains(location) else { return }
+
+        let temp = minTemp
+            + Double(location.x - rect.minX) / Double(rect.width) * (maxTemp - minTemp)
+        let rpm = Double(rect.maxY - location.y) / Double(rect.height) * maxRPM
+
+        let insertion = points.firstIndex(where: { $0.temp > temp }) ?? points.count
+        let lowerTemp = insertion > 0 ? points[insertion - 1].temp + 1 : minTemp
+        let upperTemp = insertion < points.count ? points[insertion].temp - 1 : maxTemp
+        guard lowerTemp <= upperTemp else { return }   // no room between neighbors
+        let lowerRPM = insertion > 0 ? points[insertion - 1].rpm : 0
+        let upperRPM = insertion < points.count ? points[insertion].rpm : maxRPM
+
+        points.insert(
+            EditableCurvePoint(
+                temp: min(max(temp, lowerTemp), upperTemp),
+                rpm: min(max(rpm, lowerRPM), upperRPM)
+            ),
+            at: insertion
+        )
     }
 
     private func updatePoint(at index: Int, location: CGPoint, size: CGSize) {

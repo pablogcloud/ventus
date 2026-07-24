@@ -72,18 +72,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.statusItem = item
 
         // Debug hook: lets local tooling open UI surfaces when accessibility
-        // clicking is unavailable. Active only if ~/.ventus-debug exists.
-        if FileManager.default.fileExists(
-            atPath: NSString(string: "~/.ventus-debug").expandingTildeInPath
-        ) {
+        // clicking is unavailable. Requires ~/.ventus-debug to contain a
+        // non-empty secret token, and every command must carry it
+        // ("<token>:<command>") — an unauthenticated distributed notification
+        // must never be able to synthesize clicks that reach the arm flow.
+        // The file is also re-checked per event so deleting it takes effect
+        // immediately.
+        let debugTokenPath = NSString(string: "~/.ventus-debug").expandingTildeInPath
+        if let launchToken = try? String(contentsOfFile: debugTokenPath, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !launchToken.isEmpty {
             DistributedNotificationCenter.default().addObserver(
                 forName: Notification.Name("com.formm.ventus.debug.command"),
                 object: nil,
                 queue: .main
             ) { [weak self] note in
                 MainActor.assumeIsolated {
-                    guard let self else { return }
-                    switch note.object as? String {
+                    guard let self,
+                          let payload = note.object as? String,
+                          payload.hasPrefix(launchToken + ":"),
+                          let currentToken = try? String(
+                              contentsOfFile: debugTokenPath, encoding: .utf8
+                          ).trimmingCharacters(in: .whitespacesAndNewlines),
+                          currentToken == launchToken
+                    else { return }
+                    let command = String(payload.dropFirst(launchToken.count + 1))
+                    switch Optional(command) {
                     case "showPopover":
                         self.showPanel()
                     case "hidePopover":
@@ -101,6 +115,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     case let s? where s.hasPrefix("clickmain:"):
                         if let main = NSApp.windows.first(where: { $0.identifier?.rawValue == "mainWindow" }) {
                             self.synthesizeClick(in: main, topLeft: Self.parsePoint(s))
+                        }
+                    case let s? where s.hasPrefix("dragmain:"):
+                        if let main = NSApp.windows.first(where: { $0.identifier?.rawValue == "mainWindow" }) {
+                            let nums = s.split(separator: ":").last?
+                                .split(separator: ",").compactMap { Double($0) } ?? []
+                            if nums.count == 4 {
+                                self.synthesizeDrag(
+                                    in: main,
+                                    from: NSPoint(x: nums[0], y: nums[1]),
+                                    to: NSPoint(x: nums[2], y: nums[3])
+                                )
+                            }
                         }
                     case let s? where s.hasPrefix("scrollmain:"):
                         if let main = NSApp.windows.first(where: { $0.identifier?.rawValue == "mainWindow" }) {
@@ -273,6 +299,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 pressure: 1
             ) {
                 window.sendEvent(event)
+            }
+        }
+    }
+
+    /// leftMouseDown at `from`, interpolated leftMouseDragged steps, leftMouseUp
+    /// at `to` — spaced over the run loop so gesture recognizers see a real drag.
+    private func synthesizeDrag(in window: NSWindow, from: NSPoint, to: NSPoint) {
+        func flipped(_ p: NSPoint) -> NSPoint {
+            NSPoint(x: p.x, y: window.frame.height - p.y)
+        }
+        func mouseEvent(_ type: NSEvent.EventType, _ location: NSPoint) -> NSEvent? {
+            NSEvent.mouseEvent(
+                with: type,
+                location: location,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        }
+        window.makeKey()
+        if let down = mouseEvent(.leftMouseDown, flipped(from)) {
+            window.sendEvent(down)
+        }
+        let steps = 12
+        for step in 1 ... steps {
+            let fraction = Double(step) / Double(steps)
+            let p = NSPoint(
+                x: from.x + (to.x - from.x) * fraction,
+                y: from.y + (to.y - from.y) * fraction
+            )
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02 * Double(step)) { [weak self] in
+                guard self != nil else { return }
+                if let drag = mouseEvent(.leftMouseDragged, flipped(p)) {
+                    window.sendEvent(drag)
+                }
+                if step == steps, let up = mouseEvent(.leftMouseUp, flipped(to)) {
+                    window.sendEvent(up)
+                }
             }
         }
     }

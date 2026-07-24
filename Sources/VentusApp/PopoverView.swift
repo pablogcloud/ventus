@@ -4,8 +4,15 @@ import SwiftUI
 struct PopoverView: View {
     @ObservedObject var observer: DaemonClientObserver
     @Binding var showMainWindow: Bool
-    @State private var showArmConfirmation = false
+    // One-time authorization: once granted, profile switches arm/drive the
+    // fans directly with no per-action confirmation.
+    @AppStorage("controlAuthorized") private var controlAuthorized = false
+    @State private var pendingProfile: String?
     @Environment(\.openWindow) private var openWindow
+
+    private static let debugEnabled = FileManager.default.fileExists(
+        atPath: NSString(string: "~/.ventus-debug").expandingTildeInPath
+    )
 
     var body: some View {
         Group {
@@ -16,10 +23,9 @@ struct PopoverView: View {
             }
         }
         .padding(15)
-        .frame(width: 316)
-        .background(.ultraThinMaterial)
-        .background(VentusPalette.surface.opacity(0.82))
+        .frame(width: 330)
         .foregroundStyle(VentusPalette.ink)
+        .background(VentusPalette.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -27,7 +33,15 @@ struct PopoverView: View {
         }
         .onChange(of: observer.status?.isFanControlAvailable ?? true) { _, isAvailable in
             if !isAvailable {
-                showArmConfirmation = false
+                pendingProfile = nil
+            }
+        }
+        .onReceive(
+            DistributedNotificationCenter.default()
+                .publisher(for: Notification.Name("com.formm.ventus.debug.command"))
+        ) { note in
+            if Self.debugEnabled, note.object as? String == "openMain" {
+                openMainWindow()
             }
         }
     }
@@ -108,18 +122,34 @@ struct PopoverView: View {
     ) -> some View {
         VentusSegmentButton(
             title: title,
-            isSelected: status.activeProfile == key,
+            isSelected: key == "auto-apple"
+                ? status.mode != "armed"
+                : status.mode == "armed" && status.activeProfile == key,
             isEnabled: status.isFanControlAvailable,
-            action: {
-                Task {
-                    if key == "auto-apple" {
-                        _ = await observer.setAppleAuto()
-                    } else {
-                        _ = await observer.setProfile(key)
-                    }
-                }
-            }
+            action: { select(profile: key) }
         )
+    }
+
+    private func select(profile key: String) {
+        if key == "auto-apple" {
+            pendingProfile = nil
+            Task { _ = await observer.disarm() }
+        } else if !controlAuthorized {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
+                pendingProfile = key
+            }
+        } else {
+            pendingProfile = nil
+            Task { await activate(key) }
+        }
+    }
+
+    /// Switch to a control profile; arms first if the daemon is observing.
+    private func activate(_ key: String) async {
+        _ = await observer.setProfile(key)
+        if observer.status?.mode != "armed" {
+            _ = await observer.arm()
+        }
     }
 
     @ViewBuilder
@@ -164,68 +194,68 @@ struct PopoverView: View {
     }
 
     private func armControls(_ status: TelemetrySnapshot) -> some View {
-        // Explicit buttons, not a toggle: a confirmed action doesn't fit a switch
-        // (the two-way binding snaps back mid-confirmation). Three clear states.
+        // Authorize-once model: the profile selector IS the control surface.
+        // Picking Quiet/Balanced/Perf arms and drives; Auto returns to Apple.
+        // The first-ever pick shows a single authorization card, then never again.
         VStack(spacing: 9) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Fan control")
-                        .font(VentusFont.body(12, weight: .semibold))
-                        .foregroundStyle(VentusPalette.ink)
-                    Text(status.mode == "armed" ? "Armed — driving your fans" : "Apple auto")
+            if let pending = pendingProfile {
+                authorizationCard(pending)
+            } else {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Fan control")
+                            .font(VentusFont.body(12, weight: .semibold))
+                            .foregroundStyle(VentusPalette.ink)
+                        Text(
+                            status.mode == "armed"
+                                ? "Ventus is driving your fans"
+                                : "Apple auto — pick a profile to take control"
+                        )
                         .font(VentusFont.body(10))
                         .foregroundStyle(status.mode == "armed" ? VentusPalette.accentDeep : VentusPalette.ink3)
-                }
-                Spacer()
-                if status.mode == "armed" {
-                    Circle()
-                        .fill(VentusPalette.accent)
-                        .frame(width: 8, height: 8)
-                }
-            }
-
-            if status.mode == "armed" {
-                Button {
-                    Task { _ = await observer.disarm() }
-                } label: {
-                    Text("Return to Apple auto").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(VentusButtonStyle(kind: .ghost))
-            } else if showArmConfirmation {
-                VStack(spacing: 8) {
-                    Text("Arm fan control? Fans will follow your curves. Any error or crash reverts to Apple auto.")
-                        .font(VentusFont.body(11))
-                        .foregroundStyle(VentusPalette.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    HStack(spacing: 8) {
-                        Button {
-                            showArmConfirmation = false
-                        } label: {
-                            Text("Cancel").frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(VentusButtonStyle(kind: .ghost))
-                        Button {
-                            showArmConfirmation = false
-                            Task { _ = await observer.arm() }
-                        } label: {
-                            Text("Arm").frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(VentusButtonStyle(kind: .primary))
+                    }
+                    Spacer()
+                    if status.mode == "armed" {
+                        Circle()
+                            .fill(VentusPalette.accent)
+                            .frame(width: 8, height: 8)
                     }
                 }
-                .padding(10)
-                .background(VentusPalette.accentTint)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            } else {
+            }
+        }
+    }
+
+    private func authorizationCard(_ pending: String) -> some View {
+        VStack(spacing: 8) {
+            Text("Enable fan control?")
+                .font(VentusFont.body(12, weight: .semibold))
+                .foregroundStyle(VentusPalette.ink)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Ventus will drive the fans with your curves. Any error, crash, or thermal limit instantly returns them to Apple auto. You won't be asked again.")
+                .font(VentusFont.body(11))
+                .foregroundStyle(VentusPalette.ink2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
                 Button {
-                    showArmConfirmation = true
+                    withAnimation { pendingProfile = nil }
                 } label: {
-                    Text("Arm fan control").frame(maxWidth: .infinity)
+                    Text("Not now").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(VentusButtonStyle(kind: .ghost))
+                Button {
+                    controlAuthorized = true
+                    pendingProfile = nil
+                    Task { await activate(pending) }
+                } label: {
+                    Text("Enable").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(VentusButtonStyle(kind: .primary))
             }
         }
+        .padding(10)
+        .background(VentusPalette.accentTint)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private func headerMeta(_ status: TelemetrySnapshot) -> String {
@@ -236,6 +266,9 @@ struct PopoverView: View {
     }
 
     private func reasonText(_ status: TelemetrySnapshot) -> String {
+        guard status.mode == "armed" else {
+            return "Apple is managing the fans"
+        }
         guard let explanation = status.explanations.first else {
             if let rule = status.activeRule, !rule.isEmpty {
                 return rule

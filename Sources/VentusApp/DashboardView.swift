@@ -4,11 +4,6 @@ struct DashboardTabView: View {
     @ObservedObject var observer: DaemonClientObserver
     @State private var histories: [String: [Double]] = [:]
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 14),
-        GridItem(.flexible(), spacing: 14),
-        GridItem(.flexible(), spacing: 14),
-    ]
 
     var body: some View {
         ScrollView {
@@ -39,34 +34,42 @@ struct DashboardTabView: View {
     }
 
     private func dashboard(_ status: TelemetrySnapshot) -> some View {
-        LazyVGrid(columns: columns, spacing: 14) {
+        // Plain stacks, not Grid/LazyVGrid: spanning cells resolve column
+        // widths unpredictably; equal thirds via maxWidth on each card.
+        VStack(spacing: 14) {
             DieHeatMap(status: status)
+                .frame(maxWidth: .infinity)
                 .ventusCard()
-                .gridCellColumns(3)
 
-            ThermalGaugeCard(
-                title: "CPU package",
-                temperature: status.temperature(for: "cpu_perf") ?? status.hottestTemperature
-            )
-            .ventusCard()
-
-            ThermalGaugeCard(
-                title: "GPU",
-                temperature: status.temperature(for: "gpu")
-            )
-            .ventusCard()
-
-            PackagePowerCard(watts: status.packageWatts)
+            HStack(alignment: .top, spacing: 14) {
+                ThermalGaugeCard(
+                    title: "CPU package",
+                    temperature: status.temperature(for: "cpu_perf") ?? status.hottestTemperature
+                )
+                .frame(maxWidth: .infinity)
                 .ventusCard()
+
+                ThermalGaugeCard(
+                    title: "GPU",
+                    temperature: status.temperature(for: "gpu")
+                )
+                .frame(maxWidth: .infinity)
+                .ventusCard()
+
+                PackagePowerCard(watts: status.packageWatts)
+                    .frame(maxWidth: .infinity)
+                    .ventusCard()
+            }
+            .fixedSize(horizontal: false, vertical: true)
 
             ThermalHistoryCard(status: status, histories: histories)
+                .frame(maxWidth: .infinity)
                 .ventusCard()
-                .gridCellColumns(3)
 
             if status.isFanControlAvailable {
                 FanStatusCard(status: status)
+                    .frame(maxWidth: .infinity)
                     .ventusCard()
-                    .gridCellColumns(3)
             }
         }
     }
@@ -146,7 +149,8 @@ private struct DieHeatMap: View {
                     .position(x: width * 0.823, y: height * 0.73)
                 }
             }
-            .aspectRatio(600 / 250, contentMode: .fit)
+            .frame(width: 620, height: 258)     // fixed: the schematic reads wrong blown up
+            .frame(maxWidth: .infinity)         // …and centered in the card
 
             HStack(spacing: 10) {
                 Text("Cooler")
@@ -166,6 +170,7 @@ private struct DieHeatMap: View {
                     .font(VentusFont.number(11, weight: .medium))
                     .foregroundStyle(VentusPalette.ink3)
             }
+            .frame(maxWidth: 620)
         }
     }
 

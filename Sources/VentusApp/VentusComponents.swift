@@ -58,11 +58,12 @@ struct VentusSegmentButton: View {
         Button(action: action) {
             Text(title)
                 .font(VentusFont.body(12, weight: .semibold))
+                .lineLimit(1)
                 .foregroundStyle(
                     isSelected ? VentusPalette.accentDeep : VentusPalette.ink2
                 )
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 6)
                 .frame(height: 28)
                 .background {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)

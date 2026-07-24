@@ -172,7 +172,7 @@ public final class HardwareOwner: @unchecked Sendable {
                     continue
                 }
                 _ = hw.toAuto(f)
-                if hw.readMode(f) == 0 {
+                if verifiedAutoMode(f) {
                     verified += 1
                 } else {
                     failures.append(f)
@@ -182,7 +182,7 @@ public final class HardwareOwner: @unchecked Sendable {
             for f in 0 ..< 8 {
                 guard hw.readMode(f) != nil else { continue }
                 _ = hw.toAuto(f)
-                if hw.readMode(f) == 0 {
+                if verifiedAutoMode(f) {
                     verified += 1
                 } else {
                     failures.append(f)
@@ -193,6 +193,25 @@ public final class HardwareOwner: @unchecked Sendable {
         if !failures.isEmpty {
             return .failed("restore could not verify fans \(failures)")
         }
+        return finishRestore(verified: verified, count: count)
+    }
+
+    /// The SMC can report a stale FxMd for a beat after the auto write lands
+    /// (observed on M-series: write succeeds, fans revert, immediate readback
+    /// still says forced). Poll briefly, re-issuing the auto write between
+    /// polls, before declaring the restore unverified.
+    private func verifiedAutoMode(_ f: Int) -> Bool {
+        for attempt in 0 ..< 6 {
+            if hw.readMode(f) == 0 { return true }
+            if attempt < 5 {
+                usleep(100_000)
+                _ = hw.toAuto(f)
+            }
+        }
+        return false
+    }
+
+    private func finishRestore(verified: Int, count: Int) -> Result {
         if verified == 0 {
             if count == 0 {
                 return .failed("fan count unknown; cannot certify")

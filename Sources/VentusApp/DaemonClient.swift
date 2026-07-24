@@ -77,7 +77,7 @@ final class DaemonClientObserver: NSObject, ObservableObject {
         self.config = config
     }
 
-    func setError(_ message: String) {
+    func setError(_ message: String?) {
         errorMessage = message
     }
 
@@ -169,9 +169,20 @@ actor DaemonClient {
         connection.resume()
         self.connection = connection
 
-        updateObserver { $0.setConnected(true) }
-        _ = await getStatus()
-        _ = await getConfig()
+        // Confirm the connection actually works before declaring it up: a
+        // resumed NSXPCConnection to a dead service still "succeeds" until the
+        // first call fails.
+        if let status = await getStatus() {
+            reconnectAttempts = 0   // healthy — reset the backoff counter
+            updateObserver {
+                $0.setConnected(true)
+                $0.setError(nil)
+            }
+            _ = await getConfig()
+            _ = status
+        } else {
+            await handleDisconnection()
+        }
     }
 
     private func handleDisconnection() async {
@@ -180,19 +191,23 @@ actor DaemonClient {
             $0.clearStatus()
         }
 
+        // Local daemon: NEVER give up permanently — the daemon can be restarted
+        // (reinstall, crash-recovery) at any time and the app must self-heal
+        // whenever it comes back. Back off up to a cap, then keep retrying at
+        // that cap forever. (The old code stopped after 5 tries AND never reset
+        // the counter on success, so a few daemon restarts wedged the app until
+        // relaunch.)
+        connection?.invalidate()
+        connection = nil
         reconnectAttempts += 1
-        guard reconnectAttempts < maxReconnectAttempts else {
+        let backoffSeconds = min(pow(2.0, Double(reconnectAttempts)), 8.0)
+        if reconnectAttempts == maxReconnectAttempts {
             updateObserver {
-                $0.setError("Failed to connect to daemon. Please ensure ventusd is running.")
+                $0.setError("Waiting for the Ventus daemon… (retrying)")
             }
-            return
         }
-
-        let backoffSeconds = pow(2.0, Double(reconnectAttempts))
         try? await Task.sleep(nanoseconds: UInt64(backoffSeconds * 1_000_000_000))
-        if reconnectAttempts < maxReconnectAttempts {
-            await connect()
-        }
+        await connect()
     }
 
     func getStatus() async -> TelemetrySnapshot? {
@@ -345,11 +360,18 @@ actor DaemonClient {
         pollTask?.cancel()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                _ = await self?.getStatus()
+                // A nil poll with a live connection object means the proxy
+                // failed without the invalidation handler firing (daemon gone).
+                // Kick a reconnect so the app recovers even then.
+                if await self?.getStatus() == nil, await self?.hasConnection == true {
+                    await self?.handleDisconnection()
+                }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }
     }
+
+    var hasConnection: Bool { connection != nil }
 
     func stopPolling() {
         pollTask?.cancel()

@@ -25,9 +25,25 @@ enum VentusPalette {
     static let warn = solid(0xE89629)
     static let hot = solid(0xD73337)
     static let onAccent = solid(0xFFFFFF)
-    static let gaugeCore = solid(0x17221C)
-    static let thermalInk = solid(0xFFFFFF)
-    static let thermalShadow = solid(0x17221C, alpha: 0.42)
+    static let gaugeCore = dynamic("gaugeCore", light: 0xFFFFFF, dark: 0x17221C)
+    static let thermalInk = dynamic("thermalInk", light: 0x17221C, dark: 0xFFFFFF)
+    static let thermalShadow = dynamic(
+        "thermalShadow",
+        light: 0x355C43, dark: 0x17221C,
+        lightAlpha: 0.18, darkAlpha: 0.42
+    )
+
+    /// Recessed area inside a glass card (segment containers, schematic box):
+    /// slightly dark in BOTH appearances — a white tint disappears on light.
+    static let well = dynamic("well", light: 0x17221C, dark: 0x000000,
+                              lightAlpha: 0.06, darkAlpha: 0.14)
+    /// Raised area inside a glass card (fan cards, metric chips): light lift
+    /// in dark mode, subtle dark lift in light mode.
+    static let lift = dynamic("lift", light: 0x17221C, dark: 0xFFFFFF,
+                              lightAlpha: 0.045, darkAlpha: 0.07)
+    /// Dim backing under glassEffect for backdrop legibility.
+    static let glassTint = dynamic("glassTint", light: 0x17221C, dark: 0x000000,
+                                   lightAlpha: 0.05, darkAlpha: 0.16)
     static let shadow = dynamic(
         "shadow",
         light: 0x355C43,
@@ -217,7 +233,7 @@ struct VentusGlassModifier: ViewModifier {
                 // lensing stays visible.
                 .background(
                     RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .fill(Color.black.opacity(0.16))
+                        .fill(VentusPalette.glassTint)
                 )
                 .glassEffect(
                     .regular,

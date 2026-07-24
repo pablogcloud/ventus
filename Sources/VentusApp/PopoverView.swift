@@ -133,7 +133,7 @@ struct PopoverView: View {
         .padding(3)
         .background {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.white.opacity(0.07))
+                .fill(VentusPalette.lift)
         }
     }
 
@@ -220,7 +220,7 @@ struct PopoverView: View {
                 .padding(10)
                 .background {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.07))
+                        .fill(VentusPalette.lift)
                 }
         } else {
             HStack(spacing: 8) {
@@ -244,7 +244,7 @@ struct PopoverView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.white.opacity(0.07))
+                            .fill(VentusPalette.lift)
                     }
                 }
             }

@@ -77,7 +77,7 @@ struct ProfilesTabView: View {
                         .padding(14)
                         .background {
                             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                .fill(Color.white.opacity(0.07))
+                                .fill(VentusPalette.lift)
                         }
                 } else {
                     ForEach(
@@ -249,7 +249,7 @@ private struct ProfileMetric: View {
         .padding(.vertical, 7)
         .background {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Color.white.opacity(0.07))
+                .fill(VentusPalette.lift)
         }
     }
 }

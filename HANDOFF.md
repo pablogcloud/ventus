@@ -12,13 +12,14 @@ b73b3bb (C1 startup-restore gating, C4 resolved-profile validation, C5/C8
 consecutive-command-failure → exit, latched→disarm, H3 frozen-sensor
 detection, missing-profile mid-run restore, C8b getConfig race).
 
-**REMAINING KNOWN GAPS (not yet addressed — decide before shipping):**
-- **H7 sleep/wake: no lifecycle handling at all.** The daemon never registers
-  for IOPMSystemPowerStateNotification / IORegisterForSystemPower. Unknown
-  whether SMC forced-fan state survives sleep on Apple Silicon — needs a live
-  sleep test (arm, sleep the Mac, wake, check FxMd + whether the control loop
-  resumed). If forced state persists across sleep with a stalled loop, fans
-  could hold a stale target. This is the biggest open safety item.
+**REMAINING KNOWN GAPS:**
+- **H7 sleep/wake: handler IMPLEMENTED (c129c2b), NOT live-verified.** The
+  daemon now registers via IORegisterForSystemPower; on will-sleep (if armed)
+  it restores fans to Apple auto and allows sleep, on wake the per-tick loop
+  re-establishes control. Fail-safe by construction, but needs a real live
+  sleep test once deployed: arm, sleep the Mac, wake, confirm ventusd.log
+  shows "System will sleep — restoring" then "System woke", fans re-arm, no
+  stuck target. Until that test, treat armed+sleep as unproven.
 - **H2** owner-queue wedge: `HardwareOwner.submit` timeout doesn't cancel
   queued work, so an emergency latch might not engage — but the new C5/C8
   consecutive-failure `exit(1)` makes launchd-restart the reliable backstop
@@ -29,10 +30,14 @@ detection, missing-profile mid-run restore, C8b getConfig race).
 - **XPC code-sign check** (from the earlier UI audit): the root daemon still
   trusts any admin-UID client. Fold into the same hardening pass.
 
-**The hardened daemon (b73b3bb) is NOT deployed** — reinstall needs admin and
-the prompt didn't go through this session. Run `sudo bash scripts/install.sh`.
-The running daemon is the prior binary (armed, Balanced), which is safe but
-lacks the new guards.
+**The hardened daemon (HEAD c129c2b) is NOT deployed** — reinstall needs admin
+and the prompt didn't surface this session (fullscreen app). Run:
+```
+sudo bash ~/Projects/ventus/scripts/install.sh
+```
+The running daemon is the prior binary (armed, Balanced) — safe (it has the
+watchdog + 95°C override) but lacks the audit guards + sleep/wake handling.
+After deploying, do the live sleep test above to close H7.
 
 ## What changed this session (all verified visually via screenshots)
 

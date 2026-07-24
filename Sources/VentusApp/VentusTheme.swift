@@ -226,17 +226,16 @@ struct VentusGlassModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
+            // ONE shape only. Previously a separate tint RoundedRectangle behind
+            // the glass (plus a redundant clipShape on the caller) stacked three
+            // rounded shapes that didn't perfectly align — the tint rect peeked
+            // out as a ghost double-corner. The tint now rides inside the glass
+            // via .tint(), so the glassEffect is the single source of the shape,
+            // edge, and clip. A dim tint keeps backdrop text unreadable while the
+            // liquid lensing survives.
             content
-                // Plain tint, NOT a material: a material backing frosts over
-                // the refraction and the whole thing reads as plastic. A dim
-                // tint keeps backdrop text unreadable while the liquid
-                // lensing stays visible.
-                .background(
-                    RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .fill(VentusPalette.glassTint)
-                )
                 .glassEffect(
-                    .regular,
+                    .regular.tint(VentusPalette.glassTint),
                     in: RoundedRectangle(cornerRadius: radius, style: .continuous)
                 )
         } else {

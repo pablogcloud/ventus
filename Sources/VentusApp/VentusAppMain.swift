@@ -232,10 +232,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // must not steal focus from the frontmost app. KeyablePanel overrides
         // canBecomeKey so its controls still take the first click.
         panel.makeKeyAndOrderFront(nil)
-        // The shadow is computed against the window's opaque outline; without
-        // this it can bake in a square outline before the rounded glass lays
-        // out, leaving dark artifacts in the corners.
-        DispatchQueue.main.async { panel.invalidateShadow() }
+        // The window shadow is computed from the layer's alpha. If invalidated
+        // before the Liquid Glass has finished rendering its rounded alpha, the
+        // shadow bakes in a stale/offset outline — the ghost corner. Re-invalidate
+        // across a few frames so it settles against the final glass shape.
+        for delay in [0.0, 0.05, 0.15, 0.3] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak panel] in
+                panel?.invalidateShadow()
+            }
+        }
 
         // Transient behavior: any click outside the panel closes it.
         if clickMonitor == nil {

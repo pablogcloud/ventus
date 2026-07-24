@@ -159,7 +159,10 @@ struct PopoverView: View {
     private func enqueueAction(_ body: @escaping (Int) async -> Void) {
         actionGeneration += 1
         let gen = actionGeneration
-        actionError = nil   // a superseded transaction's error must not linger
+        // actionError is NOT cleared here: a failed-restore warning stays valid
+        // until the new transaction reports its own outcome (which overwrites
+        // or clears it, generation-guarded). controlCall guarantees every
+        // transaction resolves, so the warning can't linger forever.
         let previous = actionTask
         actionTask = Task {
             _ = await previous?.value

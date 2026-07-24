@@ -258,8 +258,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Hosting view that responds to the FIRST click even while another app is
+    /// active. Without acceptsFirstMouse, macOS swallows the initial click on
+    /// the nonactivating panel as an activation click — the user presses a
+    /// profile segment and nothing happens, which reads as a broken button.
+    private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    }
+
     private func makePanel() -> NSPanel {
-        let host = NSHostingController(
+        let host = FirstMouseHostingView(
             rootView: PopoverView(
                 observer: daemonClient,
                 showMainWindow: .constant(false)
@@ -273,7 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: true
         )
-        panel.contentViewController = host
+        panel.contentView = host
         panel.isFloatingPanel = true
         panel.level = .statusBar
         panel.backgroundColor = .clear
@@ -283,8 +291,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.animationBehavior = .none
-        host.view.layoutSubtreeIfNeeded()
-        panel.setContentSize(host.view.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        panel.setContentSize(host.fittingSize)
 
         // Borderless windows grow UPWARD from their bottom-left origin. When
         // the SwiftUI content changes height (authorization card, warnings),
@@ -430,7 +438,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     #endif
 
     private func positionPanel(_ panel: NSPanel) {
-        if let contentView = panel.contentViewController?.view {
+        if let contentView = panel.contentView {
             contentView.layoutSubtreeIfNeeded()
             panel.setContentSize(contentView.fittingSize)
         }

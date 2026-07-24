@@ -192,13 +192,17 @@ struct MainWindowView: View {
 
             Spacer()
 
-            HStack(spacing: 7) {
-                Circle()
-                    .fill(observer.isConnected ? VentusPalette.good : VentusPalette.warn)
-                    .frame(width: 7, height: 7)
-                Text(observer.isConnected ? "Daemon connected" : "Connecting")
-                    .font(VentusFont.body(11, weight: .medium))
-                    .foregroundStyle(VentusPalette.ink2)
+            // Silent when healthy: the connection status only surfaces when
+            // something is actually wrong.
+            if !observer.isConnected {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(VentusPalette.warn)
+                        .frame(width: 7, height: 7)
+                    Text("Connecting to the daemon")
+                        .font(VentusFont.body(11, weight: .medium))
+                        .foregroundStyle(VentusPalette.ink2)
+                }
             }
         }
         .padding(.leading, 78)

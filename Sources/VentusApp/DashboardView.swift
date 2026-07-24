@@ -235,11 +235,6 @@ private struct DieHeatMap: View {
                     .foregroundStyle(VentusPalette.ink3)
             }
             .frame(maxWidth: 620)
-
-            Text("E-cores share the CPU cluster sensor · the Neural Engine exposes none")
-                .font(VentusFont.body(10))
-                .foregroundStyle(VentusPalette.ink3)
-                .frame(maxWidth: 620, alignment: .leading)
         }
     }
 
@@ -264,6 +259,7 @@ private struct DieRegion: View {
     /// Exact number of real units (cores); grid cells beyond this render
     /// empty so a 38-core GPU shows 38 tiles in an 8×5 grid, not 40.
     var tileCount: Int?
+    @State private var hoveredTile: Int?
 
     /// One value per tile: bucket-averaged when there are more sensors than
     /// tiles (SoC's 11-sensor grid), cycled when there are fewer, nil when
@@ -292,12 +288,6 @@ private struct DieRegion: View {
                     .tracking(0.5)
                     .foregroundStyle(VentusPalette.ink2)
                     .lineLimit(1)
-                if let annotation {
-                    Text(annotation)
-                        .font(VentusFont.body(8))
-                        .foregroundStyle(VentusPalette.ink3)
-                        .lineLimit(1)
-                }
                 Spacer(minLength: 0)
                 Text(temperature.map { String(format: "%.0f°", $0) } ?? "—")
                     .font(VentusFont.number(12, weight: .bold))
@@ -313,31 +303,70 @@ private struct DieRegion: View {
                 let tileHeight = (proxy.size.height - CGFloat(tileRows - 1) * spacing)
                     / CGFloat(tileRows)
                 let values = tileTemps(count: tileRows * tileColumns)
-                VStack(spacing: spacing) {
-                    ForEach(0..<tileRows, id: \.self) { row in
-                        HStack(spacing: spacing) {
-                            ForEach(0..<tileColumns, id: \.self) { column in
-                                let index = row * tileColumns + column
-                                if let tileCount, index >= tileCount {
-                                    Color.clear
-                                        .frame(width: max(tileWidth, 4), height: max(tileHeight, 4))
-                                } else {
-                                    let fill = values[index].map {
-                                        VentusPalette.adaptiveThermal($0, range: range)
-                                    }
-                                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                        .fill(fill?.opacity(0.72) ?? VentusPalette.surface3.opacity(0.5))
-                                        .overlay {
-                                            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                                .stroke(
-                                                    fill?.opacity(0.9) ?? VentusPalette.borderStrong.opacity(0.6),
-                                                    lineWidth: 1
-                                                )
+                ZStack(alignment: .topLeading) {
+                    VStack(spacing: spacing) {
+                        ForEach(0..<tileRows, id: \.self) { row in
+                            HStack(spacing: spacing) {
+                                ForEach(0..<tileColumns, id: \.self) { column in
+                                    let index = row * tileColumns + column
+                                    if let tileCount, index >= tileCount {
+                                        Color.clear
+                                            .frame(width: max(tileWidth, 4), height: max(tileHeight, 4))
+                                    } else {
+                                        let fill = values[index].map {
+                                            VentusPalette.adaptiveThermal($0, range: range)
                                         }
-                                        .frame(width: max(tileWidth, 4), height: max(tileHeight, 4))
+                                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                            .fill(fill?.opacity(0.72) ?? VentusPalette.surface3.opacity(0.5))
+                                            .overlay {
+                                                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                                    .stroke(
+                                                        hoveredTile == index
+                                                            ? VentusPalette.ink.opacity(0.8)
+                                                            : fill?.opacity(0.9) ?? VentusPalette.borderStrong.opacity(0.6),
+                                                        lineWidth: hoveredTile == index ? 1.5 : 1
+                                                    )
+                                            }
+                                            .frame(width: max(tileWidth, 4), height: max(tileHeight, 4))
+                                            .onHover { hovering in
+                                                if hovering {
+                                                    hoveredTile = index
+                                                } else if hoveredTile == index {
+                                                    hoveredTile = nil
+                                                }
+                                            }
+                                    }
                                 }
                             }
                         }
+                    }
+
+                    // Hover readout: the exact sensor value for the tile under
+                    // the pointer, floated above it.
+                    if let hovered = hoveredTile,
+                       hovered < values.count,
+                       let value = values[hovered] {
+                        let row = hovered / tileColumns
+                        let column = hovered % tileColumns
+                        let tileCenterX = CGFloat(column) * (tileWidth + spacing) + tileWidth / 2
+                        let chipX = min(max(tileCenterX, 24), proxy.size.width - 24)
+                        let chipY = CGFloat(row) * (tileHeight + spacing) - 8
+                        Text(String(format: "%.1f°", value))
+                            .font(VentusFont.number(10, weight: .bold))
+                            .foregroundStyle(VentusPalette.ink)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background {
+                                Capsule()
+                                    .fill(VentusPalette.surface)
+                                    .shadow(color: VentusPalette.shadow, radius: 4, y: 2)
+                            }
+                            .overlay {
+                                Capsule().stroke(VentusPalette.borderStrong, lineWidth: 1)
+                            }
+                            .position(x: chipX, y: max(chipY, -4))
+                            .allowsHitTesting(false)
+                            .zIndex(1)
                     }
                 }
             }
@@ -356,6 +385,8 @@ private struct DieRegion: View {
                         : StrokeStyle(lineWidth: 1)
                 )
         }
+        // Sensor caveats live in the tooltip, not on the finished UI.
+        .help(annotation.map { "\(name) — \($0)" } ?? name)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             "\(name), \(temperature.map { String(format: "%.0f degrees Celsius", $0) } ?? "no reading")"

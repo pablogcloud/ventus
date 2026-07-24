@@ -1,6 +1,24 @@
 import Combine
 import Foundation
 import VentusCore
+import os.log
+
+let appLog = Logger(subsystem: "com.formm.ventus.app", category: "client")
+
+// Debug: also write to a readable file (os_log isn't captured for this ad-hoc app).
+enum DebugFile {
+    static let url = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("ventus-app-debug.log")
+    static func write(_ s: String) {
+        let line = "\(Date().timeIntervalSince1970) \(s)\n"
+        guard let d = line.data(using: .utf8) else { return }
+        if let fh = try? FileHandle(forWritingTo: url) {
+            fh.seekToEndOfFile(); try? fh.write(contentsOf: d); try? fh.close()
+        } else {
+            try? d.write(to: url)
+        }
+    }
+}
 
 // MARK: - Local XPC Protocol Redeclaration
 
@@ -66,16 +84,26 @@ final class DaemonClientObserver: NSObject, ObservableObject {
     }
 
     func setProfile(_ profileName: String) async -> Bool {
-        guard status?.isFanControlAvailable ?? true else { return false }
-        guard let client else { return false }
-        return await client.setProfile(profileName)
+        DebugFile.write("setProfile \(profileName) called")
+        guard status?.isFanControlAvailable ?? true else {
+            appLog.log("setProfile blocked: fanControl unavailable"); return false
+        }
+        guard let client else { appLog.log("setProfile: no client"); return false }
+        let ok = await client.setProfile(profileName)
+        _ = await client.getStatus()   // reflect the selection immediately
+        appLog.log("observer.setProfile result=\(ok)")
+        return ok
     }
 
     func arm() async -> Bool {
-        guard status?.isFanControlAvailable ?? true else { return false }
-        guard let client else { return false }
+        DebugFile.write("arm called")
+        guard status?.isFanControlAvailable ?? true else {
+            appLog.log("arm blocked: fanControl unavailable"); return false
+        }
+        guard let client else { appLog.log("arm: no client"); return false }
         let ok = await client.arm()
         _ = await client.getStatus()   // reflect the new mode immediately, don't wait for the poll
+        appLog.log("observer.arm result=\(ok)")
         return ok
     }
 
@@ -163,10 +191,12 @@ actor DaemonClient {
 
     func getStatus() async -> TelemetrySnapshot? {
         guard let proxy = connection?.remoteObjectProxyWithErrorHandler({ [weak self] error in
+            appLog.log("getStatus XPC ERROR: \(error.localizedDescription, privacy: .public)")
             self?.updateObserver {
                 $0.setError("Connection error: \(error.localizedDescription)")
             }
         }) as? VentusXPCProtocol else {
+            appLog.log("getStatus: no proxy (connection nil)")
             return nil
         }
 
@@ -174,9 +204,11 @@ actor DaemonClient {
             proxy.getStatus { [weak self] data in
                 do {
                     let snapshot = try JSONDecoder().decode(TelemetrySnapshot.self, from: data)
+                    DebugFile.write("poll mode=\(snapshot.mode) profile=\(snapshot.activeProfile) fanCtl=\(snapshot.isFanControlAvailable)")
                     self?.updateObserver { $0.updateStatus(snapshot) }
                     continuation.resume(returning: snapshot)
                 } catch {
+                    appLog.log("poll: DECODE ERROR \(String(describing: error), privacy: .public)")
                     self?.updateObserver { $0.setError("Decode error: \(error)") }
                     continuation.resume(returning: nil)
                 }

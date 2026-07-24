@@ -899,4 +899,20 @@ final class ConfigValidationCoverageTests: XCTestCase {
         )
         XCTAssertNoThrow(try powerCurve.validate())
     }
+
+    func testConfigValidation_MissingBalancedFallbackRejected() {
+        var config = Config.defaultConfig()
+        config.pinnedProfile = nil
+        config.profiles.removeValue(forKey: "balanced")
+        XCTAssertThrowsError(try config.validate())
+    }
+
+    func testConfigValidation_MissingBalancedOKWhenPinnedElsewhere() {
+        var config = Config.defaultConfig()
+        config.pinnedProfile = "quiet"
+        config.profiles.removeValue(forKey: "balanced")
+        // Rules may still reference balanced; drop them for this case.
+        config.rules = RulesConfig()
+        XCTAssertNoThrow(try config.validate())
+    }
 }

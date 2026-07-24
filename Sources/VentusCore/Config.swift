@@ -36,11 +36,13 @@ public struct Config: Codable, Equatable {
             }
         }
 
-        // If a profile is pinned, it must exist
-        if let pinned = pinnedProfile {
-            guard profiles[pinned] != nil else {
-                throw ConfigError.pinnedProfileNotFound(name: pinned)
-            }
+        // The profile the control loop will resolve must exist: the pinned one
+        // when set, otherwise the "balanced" fallback (audit C4 — a valid
+        // config without it would starve the loop before the thermal override
+        // is ever evaluated).
+        let resolved = pinnedProfile ?? "balanced"
+        guard profiles[resolved] != nil else {
+            throw ConfigError.pinnedProfileNotFound(name: resolved)
         }
 
         // Rules must reference existing profiles

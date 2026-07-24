@@ -201,6 +201,20 @@ class DaemonController {
     private let watchdogQueue = DispatchQueue(label: "com.formm.ventus.watchdog", qos: .utility)
     private var shouldKeepRunning = true
     private var pendingRestore = false
+    /// Audit C5/C8: consecutive armed-mode command failures (failed writes,
+    /// owner-queue timeouts). The loop re-issues targets each tick so a
+    /// transient failure self-heals; a persistent one means fans may be stuck
+    /// at a stale forced target while heartbeats still look healthy — after
+    /// this many in a row, emergency-restore and die (launchd restarts into
+    /// startup restore with a fresh owner queue).
+    private var consecutiveCommandFailures = 0
+    private static let maxConsecutiveCommandFailures = 5
+    /// Audit H3: frozen-sensor detection. Real sensors jitter every tick; a
+    /// bit-identical full snapshot for this many consecutive armed ticks means
+    /// the sensor pipeline is frozen and curves are flying blind.
+    private var lastSensorSignature: [Double] = []
+    private var frozenSensorTicks = 0
+    private static let maxFrozenSensorTicks = 30
     // NSXPCListener.delegate is weak — both MUST be retained here or every
     // incoming connection is silently rejected after setupXPCServer() returns.
     private var xpcListener: NSXPCListener?
@@ -245,9 +259,11 @@ class DaemonController {
         // Register signal handlers
         setupSignalHandlers()
 
-        // Startup restore only applies to Macs with fans. On a fanless Mac (Air)
-        // there is nothing to restore and no SMC control surface at all.
-        if state.fanControlAvailable {
+        // Startup restore runs whenever an SMC control surface exists — NOT
+        // gated on fanControlAvailable: a transiently-zero fan-count probe at
+        // boot must never skip restoring fans a previous run left forced
+        // (restoreAllVerified probes fan slots itself when the count reads 0).
+        if state.hardwareOwner != nil {
             logMessage("[Daemon] Performing startup restoreAuto (idempotent, safe when SMC unavailable)")
             var startupRestoreSucceeded = false
             for attempt in 1 ... 3 {
@@ -370,6 +386,31 @@ class DaemonController {
             return 5.0  // Return to cool tick, don't make decisions on missing sensors
         }
 
+        // Audit H3: frozen-sensor detection. A bit-identical full snapshot for
+        // 30 consecutive armed ticks (~60s) means the pipeline is frozen — a
+        // frozen-cool reading would hold fans low under real load. Same
+        // response as sensor failure: restore, disarm, observe.
+        let signature = sensorDetails.map(\.celsius)
+        if signature == lastSensorSignature, !signature.isEmpty {
+            frozenSensorTicks += 1
+        } else {
+            frozenSensorTicks = 0
+            lastSensorSignature = signature
+        }
+        if state.armed, frozenSensorTicks >= Self.maxFrozenSensorTicks {
+            logMessage("[ControlLoop] SENSOR FREEZE: \(frozenSensorTicks) identical snapshots — restoring auto and entering observe")
+            if state.restoreAuto() {
+                pendingRestore = false
+            } else {
+                pendingRestore = true
+                logMessage("[ControlLoop] CRITICAL: sensor-freeze restore failed")
+            }
+            state.setArmed(false)
+            saveConfig(state.config)
+            frozenSensorTicks = 0
+            return 5.0
+        }
+
         var fanActuals: [Int: Double] = [:]
         for i in 0 ..< fanCount {
             if let actual = state.smcClient?.readFanActual(i) {
@@ -385,6 +426,18 @@ class DaemonController {
 
         // Run curve engine
         guard let profile = state.config.profiles[activeProfile] else {
+            // Config validation makes this unreachable (pinned profile must
+            // exist), but if it ever happens while armed the early return
+            // below would freeze forced fans AND skip the thermal override —
+            // so restore and disarm first, same as sensor failure.
+            if state.armed {
+                logMessage("[ControlLoop] Pinned profile '\(activeProfile)' missing while armed — restoring auto and entering observe")
+                if !state.restoreAuto() {
+                    logMessage("[ControlLoop] CRITICAL: missing-profile restore failed")
+                }
+                state.setArmed(false)
+                saveConfig(state.config)
+            }
             return 5.0  // Default to cool tick if profile missing
         }
 
@@ -419,12 +472,29 @@ class DaemonController {
             }
             let result = owner.submit(command, deadline: 1.0)
             switch result {
-            case .ok, .refusedLatched, .noHardware:
-                break
+            case .ok, .noHardware:
+                consecutiveCommandFailures = 0
+            case .refusedLatched:
+                // The owner has emergency-latched: no normal control is
+                // possible until restart. Stop pretending to drive.
+                logMessage("[ControlLoop] owner latched — entering observe")
+                state.setArmed(false)
+                saveConfig(state.config)
             case .failed(let why):
-                logMessage("[ControlLoop] hardware command failed: \(why)")
+                consecutiveCommandFailures += 1
+                logMessage("[ControlLoop] hardware command failed (\(consecutiveCommandFailures) consecutive): \(why)")
             case .timedOut:
-                logMessage("[ControlLoop] hardware command timed out (owner busy)")
+                consecutiveCommandFailures += 1
+                logMessage("[ControlLoop] hardware command timed out (\(consecutiveCommandFailures) consecutive)")
+            }
+
+            if consecutiveCommandFailures >= Self.maxConsecutiveCommandFailures {
+                // Fans may be stuck at a stale forced target (partial writes,
+                // wedged owner queue) while heartbeats look healthy. Restore
+                // if possible, then die — restart is the reliable reset.
+                logMessage("[ControlLoop] CRITICAL: \(consecutiveCommandFailures) consecutive command failures — emergency restore + exit")
+                state.emergencyRestore()
+                exit(1)
             }
         }
 
@@ -510,9 +580,13 @@ class DaemonController {
     }
 
     func getConfigXPC() -> Data? {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try? encoder.encode(state.config)
+        // Same serialization discipline as the mutating endpoints: config is
+        // read under serialQueue so a concurrent setConfig can't race the read.
+        serialQueue.sync {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            return try? encoder.encode(state.config)
+        }
     }
 
     /// All state-mutating XPC operations run to completion on serialQueue and

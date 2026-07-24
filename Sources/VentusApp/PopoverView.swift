@@ -164,42 +164,34 @@ struct PopoverView: View {
     }
 
     private func armControls(_ status: TelemetrySnapshot) -> some View {
+        // Explicit buttons, not a toggle: a confirmed action doesn't fit a switch
+        // (the two-way binding snaps back mid-confirmation). Three clear states.
         VStack(spacing: 9) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Fan control")
                         .font(VentusFont.body(12, weight: .semibold))
                         .foregroundStyle(VentusPalette.ink)
-                    Text(status.mode == "armed" ? "Armed" : "Apple auto")
+                    Text(status.mode == "armed" ? "Armed — driving your fans" : "Apple auto")
                         .font(VentusFont.body(10))
-                        .foregroundStyle(VentusPalette.ink3)
+                        .foregroundStyle(status.mode == "armed" ? VentusPalette.accentDeep : VentusPalette.ink3)
                 }
                 Spacer()
-                // A plain Toggle here triggers a modal alert, which a MenuBarExtra
-                // popover dismisses on focus loss. Use a button that reveals an
-                // INLINE confirmation inside the popover instead — no separate window.
-                Toggle(
-                    "",
-                    isOn: Binding(
-                        get: { status.mode == "armed" || showArmConfirmation },
-                        set: { shouldArm in
-                            if shouldArm {
-                                showArmConfirmation = true
-                            } else if status.mode == "armed" {
-                                Task { _ = await observer.disarm() }
-                            } else {
-                                showArmConfirmation = false
-                            }
-                        }
-                    )
-                )
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .tint(VentusPalette.accent)
+                if status.mode == "armed" {
+                    Circle()
+                        .fill(VentusPalette.accent)
+                        .frame(width: 8, height: 8)
+                }
             }
 
-            if showArmConfirmation && status.mode != "armed" {
-                // Inline confirmation — stays within the popover window.
+            if status.mode == "armed" {
+                Button {
+                    Task { _ = await observer.disarm() }
+                } label: {
+                    Text("Return to Apple auto").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(VentusButtonStyle(kind: .ghost))
+            } else if showArmConfirmation {
                 VStack(spacing: 8) {
                     Text("Arm fan control? Fans will follow your curves. Any error or crash reverts to Apple auto.")
                         .font(VentusFont.body(11))
@@ -225,16 +217,13 @@ struct PopoverView: View {
                 .padding(10)
                 .background(VentusPalette.accentTint)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-
-            if status.mode == "armed" {
+            } else {
                 Button {
-                    Task { _ = await observer.setAppleAuto() }
+                    showArmConfirmation = true
                 } label: {
-                    Text("Return to Apple auto")
-                        .frame(maxWidth: .infinity)
+                    Text("Arm fan control").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(VentusButtonStyle(kind: .ghost))
+                .buttonStyle(VentusButtonStyle(kind: .primary))
             }
         }
     }

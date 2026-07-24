@@ -52,12 +52,24 @@ deferred finding is the XPC code-sign check below.
 
 ## Debug hook (for future sessions without accessibility)
 
-`touch ~/.ventus-debug`, then distributed notification
-`com.formm.ventus.debug.command` with object `showPopover` / `hidePopover` /
-`openMain` (openMain requires the panel to have been shown once — the handler
-lives in PopoverView). Post via:
-`osascript -l JavaScript -e 'ObjC.import("Foundation"); $.NSDistributedNotificationCenter.defaultCenter.postNotificationNameObjectUserInfoDeliverImmediately("com.formm.ventus.debug.command", "showPopover", $(), true);'`
+Token-gated since f6394ac: `~/.ventus-debug` must contain a secret token
+(`python3 -c "import secrets; print(secrets.token_hex(16))" > ~/.ventus-debug`,
+chmod 600) and every notification object must be `"<token>:<command>"`.
+Commands: `showPopover` / `hidePopover` / `openMain` / `frames` / `pin` /
+`unpin` / `click:x,y` / `clickmain:x,y` / `dragmain:x1,y1,x2,y2` /
+`scrollmain:x,y,dy` (coords = window top-left points; openMain requires the
+panel to have been shown once). Post via:
+`osascript -l JavaScript -e 'ObjC.import("Foundation"); $.NSDistributedNotificationCenter.defaultCenter.postNotificationNameObjectUserInfoDeliverImmediately("com.formm.ventus.debug.command", "TOKEN:showPopover", $(), true);'`
 Screenshots work via the Control-your-Mac MCP (`do shell script "screencapture …"`).
-Delete `~/.ventus-debug` to disable the hook for daily use.
+**Delete `~/.ventus-debug` for daily use** — with it present, any same-user
+process that reads the token can drive the UI including the arm flow.
+
+## Still unverified by real clicks
+
+Add-point (click empty plot) and remove-point (drag off / double-click) are
+implemented but were not confirmed via synthesized events (instant synthetic
+taps may not register as SpatialTapGesture; dragging IS verified). One real
+click each confirms them. Menu-bar dual readout `58·59°` unverified visually —
+the status item lives in menu-bar overflow on this crowded bar.
 
 Fans are SAFE: mode observe, Apple auto, idle RPMs.

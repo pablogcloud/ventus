@@ -20,7 +20,7 @@ struct DashboardTabView: View {
             }
             .padding(20)
         }
-        .background(VentusPalette.panel)
+        .background(Color.clear)
         .onAppear {
             if let status = observer.status {
                 appendHistory(status)
@@ -87,6 +87,13 @@ struct DashboardTabView: View {
 
 private struct DieHeatMap: View {
     let status: TelemetrySnapshot
+    private let chip = ChipInfo.current
+
+    private func grid(for cores: Int, maxColumns: Int) -> (columns: Int, rows: Int) {
+        let columns = min(max(cores, 1), maxColumns)
+        let rows = max(1, Int((Double(cores) / Double(columns)).rounded(.up)))
+        return (columns, rows)
+    }
 
     /// Adaptive color range across the die sensors: narrow live span so the
     /// hottest region visibly stands out. Widened to ≥6°C around its midpoint
@@ -122,30 +129,36 @@ private struct DieHeatMap: View {
                 let height = proxy.size.height
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(VentusPalette.surface2)
+                        .fill(.ultraThinMaterial)
                         .overlay {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .stroke(VentusPalette.border, lineWidth: 1)
                         }
 
-                    Text("APPLE M-SERIES · SCHEMATIC")
+                    Text("\(chip.name.uppercased()) · \(chip.pCores)P+\(chip.eCores)E · \(chip.gpuCores)-CORE GPU")
                         .font(VentusFont.number(9, weight: .semibold))
                         .tracking(0.6)
                         .foregroundStyle(VentusPalette.ink3)
-                        .position(x: width * 0.165, y: height * 0.035)
+                        .lineLimit(1)
+                        .frame(width: width, alignment: .leading)
+                        .position(x: width / 2, y: height * 0.035)
 
                     // Sensor reality on this die (validated via sensordump):
                     // one shared CPU-cluster sensor set (E-cores have no
                     // separate sensor), 3 GPU cluster sensors, an 11-sensor
                     // SoC die grid, board (tdev) sensors, and nothing for the
                     // Neural Engine.
+                    let pGrid = grid(for: chip.pCores, maxColumns: 4)
+                    let eGrid = grid(for: chip.eCores, maxColumns: 4)
+                    let gpuGrid = grid(for: chip.gpuCores, maxColumns: 8)
+
                     DieRegion(
                         name: "P-CORES",
                         temperature: status.temperature(for: "cpu_perf"),
                         temps: status.temps(for: "cpu_perf"),
                         range: dieRange,
-                        tileColumns: 4,
-                        tileRows: 2
+                        tileColumns: pGrid.columns,
+                        tileRows: pGrid.rows
                     )
                     .frame(width: width * 0.25, height: height * 0.40)
                     .position(x: width * 0.19, y: height * 0.305)
@@ -155,8 +168,8 @@ private struct DieHeatMap: View {
                         temperature: status.temperature(for: "cpu_perf"),
                         temps: status.temps(for: "cpu_perf"),
                         range: dieRange,
-                        tileColumns: 4,
-                        tileRows: 1,
+                        tileColumns: eGrid.columns,
+                        tileRows: eGrid.rows,
                         annotation: "shared"
                     )
                     .frame(width: width * 0.25, height: height * 0.315)
@@ -167,8 +180,8 @@ private struct DieHeatMap: View {
                         temperature: status.temperature(for: "gpu"),
                         temps: status.temps(for: "gpu"),
                         range: dieRange,
-                        tileColumns: 6,
-                        tileRows: 4
+                        tileColumns: gpuGrid.columns,
+                        tileRows: gpuGrid.rows
                     )
                     .frame(width: width * 0.357, height: height * 0.77)
                     .position(x: width * 0.521, y: height * 0.5)
@@ -320,7 +333,7 @@ private struct DieRegion: View {
         .padding(8)
         .background {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(VentusPalette.surface)
+                .fill(.thinMaterial)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -563,7 +576,7 @@ private struct FanStatusCard: View {
                         .frame(maxWidth: .infinity)
                         .background {
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(VentusPalette.surface)
+                                .fill(.thinMaterial)
                         }
                         .overlay {
                             RoundedRectangle(cornerRadius: 18, style: .continuous)

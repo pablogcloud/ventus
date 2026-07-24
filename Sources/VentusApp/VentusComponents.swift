@@ -151,8 +151,7 @@ struct MainWindowView: View {
         VStack(spacing: 0) {
             windowHeader
             ZStack {
-                VentusPalette.panel
-                    .ignoresSafeArea()
+                Color.clear
                 selectedContent
                     .id(selectedTab)
                     .transition(
@@ -164,7 +163,7 @@ struct MainWindowView: View {
         }
         .foregroundStyle(VentusPalette.ink)
         .frame(minWidth: 780, idealWidth: 920, minHeight: 620, idealHeight: 720)
-        .background(VentusPalette.panel)
+        .background(GlassBackdrop().ignoresSafeArea())
         .onChange(of: fanControlAvailable) { _, isAvailable in
             if !isAvailable {
                 selectedTab = 0
@@ -191,7 +190,7 @@ struct MainWindowView: View {
             .frame(width: fanControlAvailable ? 300 : 116)
             .background {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(VentusPalette.surface2)
+                    .fill(.ultraThinMaterial)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -213,7 +212,6 @@ struct MainWindowView: View {
         .padding(.trailing, 18)
         .frame(height: 48)
         .background(.ultraThinMaterial)
-        .background(VentusPalette.surface.opacity(0.72))
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(VentusPalette.border)

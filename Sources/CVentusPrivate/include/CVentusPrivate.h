@@ -96,6 +96,7 @@ _Static_assert(sizeof(VentusSMCKeyData) == 80, "SMCKeyData must be 80 bytes");
 
 #define kVentusSMCReadKey    5
 #define kVentusSMCWriteKey   6
+#define kVentusSMCGetKeyByIndex 8
 #define kVentusSMCGetKeyInfo 9
 #define kVentusSMCSelectorYPC 2
 

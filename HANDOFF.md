@@ -73,10 +73,3 @@ the status item lives in menu-bar overflow on this crowded bar.
 
 Fans are SAFE: mode observe, Apple auto, idle RPMs.
 
-## Daemon redeploy pending (minor)
-
-The installed daemon includes the fail-hot blendInputs fallback but NOT the
-die-groups-first refinement from the last review round (battery/board sensors
-preferred over nothing, die sensors preferred over battery). Rare edge (only
-fires when every weighted sensor group is absent). Pick it up on the next
-`sudo bash scripts/install.sh`.

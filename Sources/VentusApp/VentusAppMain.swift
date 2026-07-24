@@ -179,6 +179,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePanel(_ sender: NSStatusBarButton) {
+        // An explicit user toggle always wins: clear any debug pin so the
+        // panel can never be left stuck open on the user's screen.
+        debugPinned = false
         if panel?.isVisible == true {
             closePanel()
         } else {

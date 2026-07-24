@@ -228,6 +228,44 @@ public final class SMCClient: @unchecked Sendable {
         }
     }
 
+    /// Every SMC temperature key ('T' prefix) with a plausible decoded value.
+    /// Diagnostic surface for cross-checking the HID PMU sensors against the
+    /// per-core/per-component SMC sensors that other fan apps display.
+    public func dumpTemperatureKeys() -> [(key: String, type: String, celsius: Double)] {
+        queue.sync {
+            var countInput = VentusSMCKeyData()
+            guard let keyCode = Self.fourCC("#KEY") else { return [] }
+            countInput.key = keyCode
+            countInput.data8 = UInt8(kVentusSMCGetKeyInfo)
+            guard let countInfo = call(&countInput)?.keyInfo else { return [] }
+            countInput.keyInfo.dataSize = countInfo.dataSize
+            countInput.data8 = UInt8(kVentusSMCReadKey)
+            guard let countOut = call(&countInput) else { return [] }
+            let total = withUnsafeBytes(of: countOut.bytes) { raw in
+                Int(UInt32(raw[0]) << 24 | UInt32(raw[1]) << 16 | UInt32(raw[2]) << 8 | UInt32(raw[3]))
+            }
+
+            var results: [(key: String, type: String, celsius: Double)] = []
+            for index in 0 ..< total {
+                var input = VentusSMCKeyData()
+                input.data8 = UInt8(kVentusSMCGetKeyByIndex)
+                input.data32 = UInt32(index)
+                guard let out = call(&input) else { continue }
+                let name = Self.typeString(out.key)
+                guard name.hasPrefix("T") else { continue }
+                guard let (info, bytes) = readBytesLocked(name) else { continue }
+                guard let value = decode(info, bytes), value > 5, value < 130 else { continue }
+                results.append((key: name, type: Self.typeString(info.dataType), celsius: value))
+            }
+            return results
+        }
+    }
+
+    /// Caller must hold `queue`.
+    private func readBytesLocked(_ key: String) -> (info: VentusSMCKeyInfo, bytes: [UInt8])? {
+        readBytes(key)
+    }
+
     public func readFanActual(_ fan: Int) -> Float? { readFanKey(fan, "Ac") }
     public func readFanTarget(_ fan: Int) -> Float? { readFanKey(fan, "Tg") }
     public func readFanMin(_ fan: Int) -> Float? { readFanKey(fan, "Mn") }

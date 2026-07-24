@@ -23,7 +23,7 @@ struct ProfilesTabView: View {
             }
             .padding(20)
         }
-        .background(VentusPalette.panel)
+        .background(Color.clear)
         .onAppear(perform: syncSelection)
         .onChange(of: observer.status?.activeProfile) { _, _ in
             syncSelection()
@@ -77,7 +77,7 @@ struct ProfilesTabView: View {
                         .padding(14)
                         .background {
                             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                .fill(VentusPalette.surface2)
+                                .fill(.ultraThinMaterial)
                         }
                 } else {
                     ForEach(
@@ -204,7 +204,7 @@ private struct ProfileCard: View {
         .frame(maxWidth: .infinity, minHeight: 168, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(VentusPalette.surface)
+                .fill(.thinMaterial)
                 .shadow(
                     color: isHovering
                         ? VentusPalette.shadow
@@ -259,7 +259,7 @@ private struct ProfileMetric: View {
         .padding(.vertical, 7)
         .background {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(VentusPalette.surface2)
+                .fill(.ultraThinMaterial)
         }
     }
 }

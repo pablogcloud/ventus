@@ -44,3 +44,21 @@ for row in rows.sorted(by: { $0.group == $1.group ? $0.name < $1.name : $0.group
                  (row.name as NSString).utf8String!))
 }
 print("total: \(rows.count)")
+
+// Cross-check: every SMC temperature key. Other fan apps read these — the
+// hottest per-core SMC sensor can sit well above the HID cluster sensors.
+if CommandLine.arguments.contains("--smc") {
+    print("\n=== SMC temperature keys ===")
+    guard let smc = SMCClient(logger: { _ in }) else {
+        print("SMC unavailable (unprivileged?)")
+        exit(0)
+    }
+    let temps = smc.dumpTemperatureKeys().sorted { $0.celsius > $1.celsius }
+    for t in temps {
+        print(String(format: "%-6s %-6s %6.1f°C",
+                     (t.key as NSString).utf8String!,
+                     (t.type as NSString).utf8String!,
+                     t.celsius))
+    }
+    print("SMC temp keys: \(temps.count)")
+}

@@ -175,6 +175,31 @@ enum VentusTheme {
     }
 }
 
+import AppKit
+
+/// Behind-window liquid-glass backdrop: makes the hosting window non-opaque
+/// and renders the system blur. The green identity lives in accents on top,
+/// not in the chrome.
+struct GlassBackdrop: NSViewRepresentable {
+    final class BackdropView: NSVisualEffectView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.isOpaque = false
+            window?.backgroundColor = .clear
+        }
+    }
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = BackdropView()
+        view.material = .underWindowBackground
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
 struct VentusCardModifier: ViewModifier {
     let padding: CGFloat
     let radius: CGFloat
@@ -184,7 +209,7 @@ struct VentusCardModifier: ViewModifier {
             .padding(padding)
             .background {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(VentusPalette.surface)
+                    .fill(.thinMaterial)
                     .shadow(color: VentusPalette.shadow, radius: 16, y: 8)
             }
             .overlay {

@@ -34,7 +34,7 @@ struct PopoverView: View {
         .padding(15)
         .frame(width: 330)
         .foregroundStyle(VentusPalette.ink)
-        .background(VentusPalette.surface)
+        .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -123,7 +123,7 @@ struct PopoverView: View {
         .padding(3)
         .background {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(VentusPalette.surface2)
+                .fill(.ultraThinMaterial)
         }
     }
 
@@ -210,7 +210,7 @@ struct PopoverView: View {
                 .padding(10)
                 .background {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(VentusPalette.surface2)
+                        .fill(.ultraThinMaterial)
                 }
         } else {
             HStack(spacing: 8) {
@@ -234,7 +234,7 @@ struct PopoverView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(VentusPalette.surface2)
+                            .fill(.ultraThinMaterial)
                     }
                 }
             }

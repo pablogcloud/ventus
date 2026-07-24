@@ -27,7 +27,7 @@ struct CurvesTabView: View {
             }
             .padding(20)
         }
-        .background(VentusPalette.panel)
+        .background(Color.clear)
         .onAppear(perform: loadConfig)
         .onChange(of: observer.config) { _, _ in
             if draft == nil || draft == baseline {
@@ -152,7 +152,7 @@ struct CurvesTabView: View {
         .frame(width: max(360, CGFloat(profile.curves.count) * 180))
         .background {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(VentusPalette.surface2)
+                .fill(.ultraThinMaterial)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 9, style: .continuous)

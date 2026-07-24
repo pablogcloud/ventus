@@ -34,12 +34,8 @@ struct PopoverView: View {
         .padding(15)
         .frame(width: 330)
         .foregroundStyle(VentusPalette.ink)
-        .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(VentusPalette.border, lineWidth: 1)
-        }
+        .ventusGlass(radius: 16)
         .onChange(of: observer.status?.isFanControlAvailable ?? true) { _, isAvailable in
             if !isAvailable {
                 pendingProfile = nil

@@ -200,6 +200,48 @@ struct GlassBackdrop: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
+/// Native macOS 26 Liquid Glass on an explicit shape, with a frosted-material
+/// fallback for macOS 14/15. Vault lesson (Open Spotlight): blanket material
+/// layers inside a transparent panel composite as flat rectangles — the glass
+/// must be the shape itself via glassEffect(in:), and glass shapes must not
+/// nest (inner elements stay subtle materials/tints).
+struct VentusGlassModifier: ViewModifier {
+    var radius: CGFloat = 16
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+                // Regular-material backing under the glass (Open Spotlight
+                // lesson): keeps backdrop glyphs from reading through while
+                // preserving the liquid edge and morphing.
+                .background(
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .fill(.regularMaterial)
+                )
+                .glassEffect(
+                    .regular,
+                    in: RoundedRectangle(cornerRadius: radius, style: .continuous)
+                )
+        } else {
+            content
+                .background(
+                    .ultraThinMaterial,
+                    in: RoundedRectangle(cornerRadius: radius, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .stroke(VentusPalette.border, lineWidth: 1)
+                }
+        }
+    }
+}
+
+extension View {
+    func ventusGlass(radius: CGFloat = 16) -> some View {
+        modifier(VentusGlassModifier(radius: radius))
+    }
+}
+
 struct VentusCardModifier: ViewModifier {
     let padding: CGFloat
     let radius: CGFloat
@@ -207,15 +249,7 @@ struct VentusCardModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(padding)
-            .background {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(.thinMaterial)
-                    .shadow(color: VentusPalette.shadow, radius: 16, y: 8)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .stroke(VentusPalette.border, lineWidth: 1)
-            }
+            .ventusGlass(radius: radius)
     }
 }
 

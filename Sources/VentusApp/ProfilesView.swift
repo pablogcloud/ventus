@@ -202,17 +202,7 @@ private struct ProfileCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, minHeight: 168, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.thinMaterial)
-                .shadow(
-                    color: isHovering
-                        ? VentusPalette.shadow
-                        : VentusPalette.shadow.opacity(0.55),
-                    radius: isHovering ? 18 : 10,
-                    y: isHovering ? 9 : 5
-                )
-        }
+        .ventusGlass(radius: 18)
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(

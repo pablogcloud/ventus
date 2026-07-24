@@ -150,13 +150,11 @@ struct CurvesTabView: View {
         }
         .padding(3)
         .frame(width: max(360, CGFloat(profile.curves.count) * 180))
+        // Inside the glass card — inner elements stay subtle materials, never
+        // nested glassEffect shapes.
         .background {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(.ultraThinMaterial)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .stroke(VentusPalette.border, lineWidth: 1)
         }
     }
 

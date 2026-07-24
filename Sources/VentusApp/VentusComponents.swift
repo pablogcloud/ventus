@@ -188,14 +188,7 @@ struct MainWindowView: View {
             }
             .padding(3)
             .frame(width: fanControlAvailable ? 300 : 116)
-            .background {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(.ultraThinMaterial)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(VentusPalette.border, lineWidth: 1)
-            }
+            .ventusGlass(radius: 9)
 
             Spacer()
 

@@ -8,6 +8,8 @@ struct PopoverView: View {
     // fans directly with no per-action confirmation.
     @AppStorage("controlAuthorized") private var controlAuthorized = false
     @State private var pendingProfile: String?
+    @State private var actionTask: Task<Void, Never>?
+    @State private var actionError: String?
     @Environment(\.openWindow) private var openWindow
 
     private static let debugEnabled = FileManager.default.fileExists(
@@ -131,24 +133,41 @@ struct PopoverView: View {
     }
 
     private func select(profile key: String) {
+        // One in-flight control transaction at a time: a stale setProfile→arm
+        // must never land after a later Auto/disarm click.
+        actionTask?.cancel()
         if key == "auto-apple" {
             pendingProfile = nil
-            Task { _ = await observer.disarm() }
+            actionTask = Task {
+                let ok = await observer.disarm()
+                guard !Task.isCancelled else { return }
+                actionError = ok ? nil : "Couldn't verify fans back to Apple auto — check the daemon log."
+            }
         } else if !controlAuthorized {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
                 pendingProfile = key
             }
         } else {
             pendingProfile = nil
-            Task { await activate(key) }
+            actionTask = Task { await activate(key) }
         }
     }
 
-    /// Switch to a control profile; arms first if the daemon is observing.
+    /// Switch to a control profile; arms afterwards if the daemon is observing.
+    /// Never arms when the profile switch itself was rejected.
     private func activate(_ key: String) async {
-        _ = await observer.setProfile(key)
+        guard await observer.setProfile(key) else {
+            guard !Task.isCancelled else { return }
+            actionError = "The daemon rejected the \(ventusProfileTitle(key)) profile."
+            return
+        }
+        guard !Task.isCancelled else { return }
         if observer.status?.mode != "armed" {
-            _ = await observer.arm()
+            let ok = await observer.arm()
+            guard !Task.isCancelled else { return }
+            actionError = ok ? nil : "Couldn't enable fan control — check the daemon log."
+        } else {
+            actionError = nil
         }
     }
 
@@ -198,6 +217,17 @@ struct PopoverView: View {
         // Picking Quiet/Balanced/Perf arms and drives; Auto returns to Apple.
         // The first-ever pick shows a single authorization card, then never again.
         VStack(spacing: 9) {
+            if let actionError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(actionError)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .font(VentusFont.body(10, weight: .medium))
+                .foregroundStyle(VentusPalette.warn)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if let pending = pendingProfile {
                 authorizationCard(pending)
             } else {
@@ -246,7 +276,8 @@ struct PopoverView: View {
                 Button {
                     controlAuthorized = true
                     pendingProfile = nil
-                    Task { await activate(pending) }
+                    actionTask?.cancel()
+                    actionTask = Task { await activate(pending) }
                 } label: {
                     Text("Enable").frame(maxWidth: .infinity)
                 }

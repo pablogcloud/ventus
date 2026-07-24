@@ -165,28 +165,29 @@ public final class HardwareOwner: @unchecked Sendable {
         var failures: [Int] = []
         var verified = 0
 
+        // Issue the auto write to EVERY reachable fan first — verification
+        // retries sleep, and a later fan must not wait behind an earlier fan's
+        // retry budget for its safety write.
+        var candidates: [Int] = []
         if count > 0 {
             for f in 0 ..< count {
-                guard hw.readMode(f) != nil else {
-                    failures.append(f)
-                    continue
-                }
-                _ = hw.toAuto(f)
-                if verifiedAutoMode(f) {
-                    verified += 1
+                if hw.readMode(f) != nil {
+                    candidates.append(f)
                 } else {
                     failures.append(f)
                 }
             }
         } else {
-            for f in 0 ..< 8 {
-                guard hw.readMode(f) != nil else { continue }
-                _ = hw.toAuto(f)
-                if verifiedAutoMode(f) {
-                    verified += 1
-                } else {
-                    failures.append(f)
-                }
+            candidates = (0 ..< 8).filter { hw.readMode($0) != nil }
+        }
+        for f in candidates {
+            _ = hw.toAuto(f)
+        }
+        for f in candidates {
+            if verifiedAutoMode(f) {
+                verified += 1
+            } else {
+                failures.append(f)
             }
         }
 

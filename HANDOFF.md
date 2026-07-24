@@ -38,7 +38,11 @@ Branch `feat/v1-build`, HEAD `8f3dbff`. Build green, 55/55 tests green.
 3. **Click-through test**: I could see and drive the app via a debug hook but
    cannot click (no accessibility). Untested by hand: hover states, the Enable
    card via real click, Curves/Profiles tabs visually (data layer proven).
-4. Armed-control safety audit still pending as before (arm path unaudited;
+4. **Codex finding for the security audit**: the root daemon's XPC endpoint
+   trusts any admin-UID process (no code-signing check on the connecting
+   client), so `controlAuthorized` is app-side cosmetics against a malicious
+   local process. Fold client code-sign verification into the armed-path audit.
+5. Armed-control safety audit still pending as before (arm path unaudited;
    brief arm/disarm cycles during testing behaved correctly, fans left SAFE —
    mode observe, Apple auto).
 

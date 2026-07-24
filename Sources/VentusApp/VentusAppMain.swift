@@ -28,6 +28,12 @@ struct VentusApp: App {
     }
 }
 
+/// Borderless windows refuse key status by default; the panel's controls need
+/// it to take the first click without activating the app.
+private final class KeyablePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let daemonClient = DaemonClientObserver()
@@ -126,7 +132,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showPanel() {
         let panel = self.panel ?? makePanel()
         positionPanel(panel)
-        NSApp.activate(ignoringOtherApps: true)
+        // No NSApp.activate: the panel is .nonactivatingPanel by design — it
+        // must not steal focus from the frontmost app. KeyablePanel overrides
+        // canBecomeKey so its controls still take the first click.
         panel.makeKeyAndOrderFront(nil)
 
         // Transient behavior: any click outside the panel closes it.
@@ -156,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         host.sizingOptions = [.preferredContentSize]
 
-        let panel = NSPanel(
+        let panel = KeyablePanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -182,19 +190,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             contentView.layoutSubtreeIfNeeded()
             panel.setContentSize(contentView.fittingSize)
         }
-        guard let button = statusItem?.button, let buttonWindow = button.window else {
+        // The status item can live in menu-bar overflow (notch Macs with many
+        // icons), where its window has no screen — or, on a cold path, have no
+        // window at all. Fall back to the top-right corner of the main screen
+        // rather than leaving the panel at a zero-origin default rect.
+        let button = statusItem?.button
+        let buttonWindow = button?.window
+        guard let screen = buttonWindow?.screen ?? NSScreen.main ?? NSScreen.screens.first else {
             return
         }
-        // The status item can live in menu-bar overflow (notch Macs with many
-        // icons), where its window has no screen — fall back to the main screen
-        // and anchor to the top-right corner.
-        let screen = buttonWindow.screen ?? NSScreen.main ?? NSScreen.screens.first
-        guard let screen else { return }
         let visible = screen.visibleFrame
-        let buttonFrame = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
         let size = panel.frame.size
-        let anchorX = buttonWindow.screen != nil ? buttonFrame.maxX : visible.maxX
-        let anchorY = buttonWindow.screen != nil ? buttonFrame.minY : visible.maxY
+        var anchorX = visible.maxX
+        var anchorY = visible.maxY
+        if let button, let buttonWindow, buttonWindow.screen != nil {
+            let buttonFrame = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+            anchorX = buttonFrame.maxX
+            anchorY = buttonFrame.minY
+        }
         var x = anchorX - size.width
         x = max(visible.minX + 8, min(x, visible.maxX - size.width - 8))
         let y = anchorY - size.height - 6

@@ -69,6 +69,13 @@ final class DaemonClientObserver: NSObject, ObservableObject {
     }
 
     func updateStatus(_ status: TelemetrySnapshot) {
+        // Monotonic: never let an OLDER snapshot overwrite a newer one. A poll
+        // whose XPC call started before a control mutation can complete after
+        // the mutation's own status apply; without this guard its late,
+        // pre-mutation snapshot would clobber the fresh one and briefly flash
+        // the previous profile (Grok residual-race finding). timestamp is
+        // daemon-stamped per publish.
+        if let current = self.status, status.timestamp < current.timestamp { return }
         self.status = status
         errorMessage = nil
     }
@@ -96,7 +103,7 @@ final class DaemonClientObserver: NSObject, ObservableObject {
         }
         guard let client else { appLog.log("setProfile: no client"); return false }
         let ok = await client.setProfile(profileName)
-        if let snap = await client.getStatus() { status = snap; errorMessage = nil }   // apply synchronously so observer.status is current before we return
+        if let snap = await client.getStatus() { updateStatus(snap) }   // apply synchronously (monotonic) so observer.status is current before we return
         appLog.log("observer.setProfile result=\(ok)")
         return ok
     }
@@ -108,7 +115,7 @@ final class DaemonClientObserver: NSObject, ObservableObject {
         }
         guard let client else { appLog.log("arm: no client"); return false }
         let ok = await client.arm()
-        if let snap = await client.getStatus() { status = snap; errorMessage = nil }   // apply synchronously so observer.status is current before we return
+        if let snap = await client.getStatus() { updateStatus(snap) }   // apply synchronously (monotonic) so observer.status is current before we return
         appLog.log("observer.arm result=\(ok)")
         return ok
     }
@@ -116,7 +123,7 @@ final class DaemonClientObserver: NSObject, ObservableObject {
     func disarm() async -> Bool {
         guard let client else { return false }
         let ok = await client.disarm()
-        if let snap = await client.getStatus() { status = snap; errorMessage = nil }
+        if let snap = await client.getStatus() { updateStatus(snap) }
         return ok
     }
 
@@ -124,7 +131,7 @@ final class DaemonClientObserver: NSObject, ObservableObject {
         guard status?.isFanControlAvailable ?? true else { return false }
         guard let client else { return false }
         let ok = await client.setAppleAuto()
-        if let snap = await client.getStatus() { status = snap; errorMessage = nil }
+        if let snap = await client.getStatus() { updateStatus(snap) }
         return ok
     }
 

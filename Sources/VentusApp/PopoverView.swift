@@ -44,13 +44,6 @@ struct PopoverView: View {
                 pendingProfile = nil
             }
         }
-        .onChange(of: observer.status.map(daemonSelection)) { _, truth in
-            // Optimistic selection has served its purpose once daemon truth
-            // catches up — hand rendering back to the real state.
-            if let truth, optimisticSelection == truth {
-                optimisticSelection = nil
-            }
-        }
         .background(debugOpenMainListener)
     }
 
@@ -204,6 +197,13 @@ struct PopoverView: View {
             _ = await previous?.value
             guard gen == actionGeneration else { return }
             await body(gen)
+            // The optimistic override lives ONLY for the in-flight window. Every
+            // observer action already refreshes status before returning, so by
+            // now observer.status reflects the outcome — clear the override and
+            // hand rendering back to daemon truth. Otherwise a later external
+            // profile change (ventusctl, a rule) would be masked forever.
+            guard gen == actionGeneration else { return }
+            optimisticSelection = nil
         }
     }
 

@@ -21,9 +21,13 @@ enum VentusPalette {
     static let ink2 = dynamic("ink2", light: 0x4F5C54, dark: 0xA1AFA5)
     static let ink3 = dynamic("ink3", light: 0x6B7870, dark: 0x77847B)
 
-    static let good = solid(0x009956)
-    static let warn = solid(0xE89629)
-    static let hot = solid(0xD73337)
+    // Semantic status colors double as small feedback TEXT, so the light
+    // variants are darkened to clear WCAG 4.5:1 on the near-white light
+    // surface (the vivid originals were ~2.4–3.9:1 there); dark variants stay
+    // vivid against the dark surface.
+    static let good = dynamic("good", light: 0x00733D, dark: 0x2FC076)
+    static let warn = dynamic("warn", light: 0x9A6300, dark: 0xF0A64A)
+    static let hot = dynamic("hot", light: 0xC01F26, dark: 0xF06E72)
     static let onAccent = solid(0xFFFFFF)
     static let gaugeCore = dynamic("gaugeCore", light: 0xFFFFFF, dark: 0x17221C)
     static let thermalInk = dynamic("thermalInk", light: 0x17221C, dark: 0xFFFFFF)

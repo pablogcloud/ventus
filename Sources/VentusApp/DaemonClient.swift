@@ -96,7 +96,7 @@ final class DaemonClientObserver: NSObject, ObservableObject {
         }
         guard let client else { appLog.log("setProfile: no client"); return false }
         let ok = await client.setProfile(profileName)
-        _ = await client.getStatus()   // reflect the selection immediately
+        if let snap = await client.getStatus() { status = snap; errorMessage = nil }   // apply synchronously so observer.status is current before we return
         appLog.log("observer.setProfile result=\(ok)")
         return ok
     }
@@ -108,7 +108,7 @@ final class DaemonClientObserver: NSObject, ObservableObject {
         }
         guard let client else { appLog.log("arm: no client"); return false }
         let ok = await client.arm()
-        _ = await client.getStatus()   // reflect the new mode immediately, don't wait for the poll
+        if let snap = await client.getStatus() { status = snap; errorMessage = nil }   // apply synchronously so observer.status is current before we return
         appLog.log("observer.arm result=\(ok)")
         return ok
     }
@@ -116,7 +116,7 @@ final class DaemonClientObserver: NSObject, ObservableObject {
     func disarm() async -> Bool {
         guard let client else { return false }
         let ok = await client.disarm()
-        _ = await client.getStatus()
+        if let snap = await client.getStatus() { status = snap; errorMessage = nil }
         return ok
     }
 
@@ -124,7 +124,7 @@ final class DaemonClientObserver: NSObject, ObservableObject {
         guard status?.isFanControlAvailable ?? true else { return false }
         guard let client else { return false }
         let ok = await client.setAppleAuto()
-        _ = await client.getStatus()
+        if let snap = await client.getStatus() { status = snap; errorMessage = nil }
         return ok
     }
 

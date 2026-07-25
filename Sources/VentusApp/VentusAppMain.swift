@@ -232,10 +232,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // must not steal focus from the frontmost app. KeyablePanel overrides
         // canBecomeKey so its controls still take the first click.
         panel.makeKeyAndOrderFront(nil)
-        // The shadow is computed against the window's opaque outline; without
-        // this it can bake in a square outline before the rounded glass lays
-        // out, leaving dark artifacts in the corners.
-        DispatchQueue.main.async { panel.invalidateShadow() }
+        // The window shadow is computed from the layer's alpha. If invalidated
+        // before the Liquid Glass has finished rendering its rounded alpha, the
+        // shadow bakes in a stale/offset outline — the ghost corner. Re-invalidate
+        // across a few frames so it settles against the final glass shape.
+        for delay in [0.0, 0.05, 0.15, 0.3] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak panel] in
+                panel?.invalidateShadow()
+            }
+        }
 
         // Transient behavior: any click outside the panel closes it.
         if clickMonitor == nil {
@@ -258,8 +263,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Hosting view that responds to the FIRST click even while another app is
+    /// active. Without acceptsFirstMouse, macOS swallows the initial click on
+    /// the nonactivating panel as an activation click — the user presses a
+    /// profile segment and nothing happens, which reads as a broken button.
+    private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    }
+
     private func makePanel() -> NSPanel {
-        let host = NSHostingController(
+        let host = FirstMouseHostingView(
             rootView: PopoverView(
                 observer: daemonClient,
                 showMainWindow: .constant(false)
@@ -273,7 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: true
         )
-        panel.contentViewController = host
+        panel.contentView = host
         panel.isFloatingPanel = true
         panel.level = .statusBar
         panel.backgroundColor = .clear
@@ -283,8 +296,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.animationBehavior = .none
-        host.view.layoutSubtreeIfNeeded()
-        panel.setContentSize(host.view.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        panel.setContentSize(host.fittingSize)
 
         // Borderless windows grow UPWARD from their bottom-left origin. When
         // the SwiftUI content changes height (authorization card, warnings),
@@ -430,7 +443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     #endif
 
     private func positionPanel(_ panel: NSPanel) {
-        if let contentView = panel.contentViewController?.view {
+        if let contentView = panel.contentView {
             contentView.layoutSubtreeIfNeeded()
             panel.setContentSize(contentView.fittingSize)
         }

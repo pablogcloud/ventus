@@ -129,7 +129,7 @@ private struct DieHeatMap: View {
                 let height = proxy.size.height
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.black.opacity(0.14))
+                        .fill(VentusPalette.well)
                         .overlay {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .stroke(VentusPalette.border, lineWidth: 1)
@@ -374,7 +374,7 @@ private struct DieRegion: View {
         .padding(8)
         .background {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Color.white.opacity(0.06))
+                .fill(VentusPalette.lift)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -619,7 +619,7 @@ private struct FanStatusCard: View {
                         .frame(maxWidth: .infinity)
                         .background {
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(Color.white.opacity(0.06))
+                                .fill(VentusPalette.lift)
                         }
                         .overlay {
                             RoundedRectangle(cornerRadius: 18, style: .continuous)

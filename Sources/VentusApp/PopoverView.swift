@@ -11,6 +11,7 @@ struct PopoverView: View {
     @State private var actionTask: Task<Void, Never>?
     @State private var actionGeneration = 0
     @State private var actionError: String?
+    @State private var optimisticSelection: String?
     @Environment(\.openWindow) private var openWindow
 
     #if DEBUG
@@ -37,7 +38,6 @@ struct PopoverView: View {
         .padding(15)
         .frame(width: 330)
         .foregroundStyle(VentusPalette.ink)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .ventusGlass(radius: 16)
         .onChange(of: observer.status?.isFanControlAvailable ?? true) { _, isAvailable in
             if !isAvailable {
@@ -133,8 +133,16 @@ struct PopoverView: View {
         .padding(3)
         .background {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.white.opacity(0.07))
+                .fill(VentusPalette.lift)
         }
+    }
+
+    /// The segment the user just clicked, shown selected IMMEDIATELY while the
+    /// daemon transaction is in flight — the XPC round-trip + 2s poll delay
+    /// otherwise makes a click feel ignored. Cleared when daemon truth
+    /// confirms it, or on failure (reverting to truth).
+    private func daemonSelection(_ status: TelemetrySnapshot) -> String {
+        status.mode == "armed" ? status.activeProfile : "auto-apple"
     }
 
     private func profileButton(
@@ -144,9 +152,7 @@ struct PopoverView: View {
     ) -> some View {
         VentusSegmentButton(
             title: title,
-            isSelected: key == "auto-apple"
-                ? status.mode != "armed"
-                : status.mode == "armed" && status.activeProfile == key,
+            isSelected: (optimisticSelection ?? daemonSelection(status)) == key,
             isEnabled: status.isFanControlAvailable,
             action: { select(profile: key) }
         )
@@ -155,10 +161,12 @@ struct PopoverView: View {
     private func select(profile key: String) {
         if key == "auto-apple" {
             pendingProfile = nil
+            optimisticSelection = key
             enqueueAction { gen in
                 let ok = await observer.disarm()
                 guard gen == actionGeneration else { return }
                 actionError = ok ? nil : "Couldn't verify fans back to Apple auto — check the daemon log."
+                if !ok { optimisticSelection = nil }
             }
         } else if !controlAuthorized {
             // No animation: animated height changes feed preferredContentSize →
@@ -167,6 +175,7 @@ struct PopoverView: View {
             pendingProfile = key
         } else {
             pendingProfile = nil
+            optimisticSelection = key
             enqueueAction { gen in await activate(key, generation: gen) }
         }
     }
@@ -188,6 +197,13 @@ struct PopoverView: View {
             _ = await previous?.value
             guard gen == actionGeneration else { return }
             await body(gen)
+            // The optimistic override lives ONLY for the in-flight window. Every
+            // observer action already refreshes status before returning, so by
+            // now observer.status reflects the outcome — clear the override and
+            // hand rendering back to daemon truth. Otherwise a later external
+            // profile change (ventusctl, a rule) would be masked forever.
+            guard gen == actionGeneration else { return }
+            optimisticSelection = nil
         }
     }
 
@@ -198,6 +214,7 @@ struct PopoverView: View {
         guard await observer.setProfile(key) else {
             guard gen == actionGeneration else { return }
             actionError = "The daemon rejected the \(ventusProfileTitle(key)) profile."
+            optimisticSelection = nil   // revert to daemon truth
             return
         }
         guard gen == actionGeneration else { return }
@@ -205,6 +222,7 @@ struct PopoverView: View {
             let ok = await observer.arm()
             guard gen == actionGeneration else { return }
             actionError = ok ? nil : "Couldn't enable fan control — check the daemon log."
+            if !ok { optimisticSelection = nil }
         } else {
             actionError = nil
         }
@@ -220,7 +238,7 @@ struct PopoverView: View {
                 .padding(10)
                 .background {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.07))
+                        .fill(VentusPalette.lift)
                 }
         } else {
             HStack(spacing: 8) {
@@ -244,7 +262,7 @@ struct PopoverView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.white.opacity(0.07))
+                            .fill(VentusPalette.lift)
                     }
                 }
             }
@@ -315,6 +333,7 @@ struct PopoverView: View {
                 Button {
                     controlAuthorized = true
                     pendingProfile = nil
+                    optimisticSelection = pending
                     enqueueAction { gen in await activate(pending, generation: gen) }
                 } label: {
                     Text("Enable").frame(maxWidth: .infinity)

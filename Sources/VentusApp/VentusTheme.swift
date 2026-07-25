@@ -21,13 +21,33 @@ enum VentusPalette {
     static let ink2 = dynamic("ink2", light: 0x4F5C54, dark: 0xA1AFA5)
     static let ink3 = dynamic("ink3", light: 0x6B7870, dark: 0x77847B)
 
-    static let good = solid(0x009956)
-    static let warn = solid(0xE89629)
-    static let hot = solid(0xD73337)
+    // Semantic status colors double as small feedback TEXT, so the light
+    // variants are darkened to clear WCAG 4.5:1 on the near-white light
+    // surface (the vivid originals were ~2.4–3.9:1 there); dark variants stay
+    // vivid against the dark surface.
+    static let good = dynamic("good", light: 0x00733D, dark: 0x2FC076)
+    static let warn = dynamic("warn", light: 0x9A6300, dark: 0xF0A64A)
+    static let hot = dynamic("hot", light: 0xC01F26, dark: 0xF06E72)
     static let onAccent = solid(0xFFFFFF)
-    static let gaugeCore = solid(0x17221C)
-    static let thermalInk = solid(0xFFFFFF)
-    static let thermalShadow = solid(0x17221C, alpha: 0.42)
+    static let gaugeCore = dynamic("gaugeCore", light: 0xFFFFFF, dark: 0x17221C)
+    static let thermalInk = dynamic("thermalInk", light: 0x17221C, dark: 0xFFFFFF)
+    static let thermalShadow = dynamic(
+        "thermalShadow",
+        light: 0x355C43, dark: 0x17221C,
+        lightAlpha: 0.18, darkAlpha: 0.42
+    )
+
+    /// Recessed area inside a glass card (segment containers, schematic box):
+    /// slightly dark in BOTH appearances — a white tint disappears on light.
+    static let well = dynamic("well", light: 0x17221C, dark: 0x000000,
+                              lightAlpha: 0.06, darkAlpha: 0.14)
+    /// Raised area inside a glass card (fan cards, metric chips): light lift
+    /// in dark mode, subtle dark lift in light mode.
+    static let lift = dynamic("lift", light: 0x17221C, dark: 0xFFFFFF,
+                              lightAlpha: 0.045, darkAlpha: 0.07)
+    /// Dim backing under glassEffect for backdrop legibility.
+    static let glassTint = dynamic("glassTint", light: 0x17221C, dark: 0x000000,
+                                   lightAlpha: 0.05, darkAlpha: 0.16)
     static let shadow = dynamic(
         "shadow",
         light: 0x355C43,
@@ -210,17 +230,16 @@ struct VentusGlassModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
+            // ONE shape only. Previously a separate tint RoundedRectangle behind
+            // the glass (plus a redundant clipShape on the caller) stacked three
+            // rounded shapes that didn't perfectly align — the tint rect peeked
+            // out as a ghost double-corner. The tint now rides inside the glass
+            // via .tint(), so the glassEffect is the single source of the shape,
+            // edge, and clip. A dim tint keeps backdrop text unreadable while the
+            // liquid lensing survives.
             content
-                // Plain tint, NOT a material: a material backing frosts over
-                // the refraction and the whole thing reads as plastic. A dim
-                // tint keeps backdrop text unreadable while the liquid
-                // lensing stays visible.
-                .background(
-                    RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .fill(Color.black.opacity(0.16))
-                )
                 .glassEffect(
-                    .regular,
+                    .regular.tint(VentusPalette.glassTint),
                     in: RoundedRectangle(cornerRadius: radius, style: .continuous)
                 )
         } else {

@@ -51,6 +51,17 @@ public final class SensorReader: @unchecked Sendable {
     /// and as a self-heal when all critical sensor groups vanish.
     public func reinitialize() {
         queue.sync {
+            // IOHIDEventSystemClientRef is a raw `struct *` (NOT an ARC-managed
+            // CF type), and Create returns +1 — nil-assignment alone would leak
+            // it on every call. Release explicitly. serviceArray IS a CFArrayRef
+            // (ARC-managed) and owns the service handles, so nil-ing it releases
+            // those.
+            if let client {
+                // Balance the +1 from IOHIDEventSystemClientCreate. The ref
+                // imports as OpaquePointer (raw, not ARC-managed), so release
+                // via Unmanaged — same pattern snapshot() uses for its events.
+                Unmanaged<AnyObject>.fromOpaque(UnsafeRawPointer(client)).release()
+            }
             client = nil
             serviceArray = nil
             services = []

@@ -37,6 +37,14 @@ public final class PowerReader: @unchecked Sendable {
     /// without this, package-power reads return nothing after wake.
     public func reinitialize() {
         queue.sync {
+            // IOReportSubscriptionRef is a raw `struct *` (NOT ARC-managed) and
+            // Create returns +1 — release explicitly or it leaks every call.
+            // subscribedChannels / previousSample are CFDictionary (ARC-managed).
+            if let subscription {
+                // Balance the +1 from IOReportCreateSubscription (raw
+                // OpaquePointer, not ARC-managed).
+                Unmanaged<AnyObject>.fromOpaque(UnsafeRawPointer(subscription)).release()
+            }
             subscription = nil
             subscribedChannels = nil
             previousSample = nil

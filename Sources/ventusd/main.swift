@@ -389,6 +389,11 @@ class DaemonController {
 
         if criticalGroupsMissing {
             logMessage("[ControlLoop] SENSOR FAILURE: critical groups (cpuPerf/gpu/soc) all absent")
+            // Self-heal: the HID client may have gone stale (e.g. a sleep whose
+            // wake notification we missed). Rebuild it so the next tick can
+            // recover temperature detection instead of staying dark forever.
+            state.sensorReader.reinitialize()
+            state.powerReader.reinitialize()
             if state.armed {
                 logMessage("[ControlLoop] Armed mode detected during sensor failure — restoring auto and entering observe")
                 if state.restoreAuto() {
@@ -603,9 +608,14 @@ class DaemonController {
             // We never veto sleep.
             IOAllowPowerChange(powerConnection, Int(bitPattern: argument))
         case kVentusMessageSystemHasPoweredOn:
-            // The control loop resumes on its own tick and re-issues forced
-            // targets if still armed; nothing to force here.
-            logMessage("[Power] System woke — control loop resumes")
+            // The IOHID sensor client and the IOReport power subscription go
+            // STALE across sleep — after wake, reads return nothing and temp
+            // detection dies until the reader is rebuilt. Force both to
+            // reinitialize; the control loop's next tick rebuilds the handles
+            // and re-issues forced targets if still armed.
+            logMessage("[Power] System woke — reinitializing sensor + power readers")
+            state.sensorReader.reinitialize()
+            state.powerReader.reinitialize()
         default:
             break
         }

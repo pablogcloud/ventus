@@ -44,6 +44,21 @@ public final class SensorReader: @unchecked Sendable {
         self.logger = logger
     }
 
+    /// Tears down the cached IOHIDEventSystemClient so the next snapshot rebuilds
+    /// it. The client and its discovered service handles go STALE across a system
+    /// sleep/wake — after wake, reads from the dead services return nothing and
+    /// temperature detection silently dies until this is called. Invoked on wake
+    /// and as a self-heal when all critical sensor groups vanish.
+    public func reinitialize() {
+        queue.sync {
+            client = nil
+            serviceArray = nil
+            services = []
+            initialized = false
+        }
+        logger("[SensorReader] reinitialized (rebuilding HID client on next read)")
+    }
+
     /// Classifies a sensor name into a thermal domain.
     ///
     /// Verified on this M2 Max (Mac14,6) 2026-07-23 — real HID names are:

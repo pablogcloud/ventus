@@ -32,6 +32,21 @@ public final class PowerReader: @unchecked Sendable {
         self.logger = logger
     }
 
+    /// Drops the cached IOReport subscription so the next read re-subscribes.
+    /// The subscription goes stale across sleep/wake just like the HID client;
+    /// without this, package-power reads return nothing after wake.
+    public func reinitialize() {
+        queue.sync {
+            subscription = nil
+            subscribedChannels = nil
+            previousSample = nil
+            previousSampleTime = nil
+            initialized = false
+            unavailable = false
+        }
+        logger("[PowerReader] reinitialized (re-subscribing on next read)")
+    }
+
     /// Reads current power consumption. nil on first call (baseline) or if unavailable.
     public func readPower() -> PowerReading? {
         queue.sync {

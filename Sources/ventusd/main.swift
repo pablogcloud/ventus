@@ -222,6 +222,13 @@ class DaemonController {
     /// the sensor pipeline is frozen and curves are flying blind.
     private var lastSensorSignature: [Double] = []
     private var frozenSensorTicks = 0
+    /// Consecutive ticks with all critical sensor groups absent. A stale HID
+    /// client (post-sleep, or a missed wake) reads empty for a beat after
+    /// rebuild, so we reinit once, tolerate a short warm-up grace, and only
+    /// treat it as a real failure (restore + disarm) once absence is SUSTAINED
+    /// — never disarm armed mode on a single transient empty read.
+    private var criticalAbsentTicks = 0
+    private static let sensorFailureGraceTicks = 4   // ~ up to a few seconds
     private static let maxFrozenSensorTicks = 30
     // NSXPCListener.delegate is weak — both MUST be retained here or every
     // incoming connection is silently rejected after setupXPCServer() returns.
@@ -388,9 +395,26 @@ class DaemonController {
             && !sensors.keys.contains(.soc)
 
         if criticalGroupsMissing {
-            logMessage("[ControlLoop] SENSOR FAILURE: critical groups (cpuPerf/gpu/soc) all absent")
+            criticalAbsentTicks += 1
+
+            // First detection: a stale HID client (post-sleep / missed wake)
+            // reads empty until rebuilt. Reinit ONCE and retry quickly before
+            // treating it as failure — do NOT disarm on this transient.
+            if criticalAbsentTicks == 1 {
+                logMessage("[ControlLoop] critical sensors absent — reinitializing readers to attempt recovery")
+                state.sensorReader.reinitialize()
+                state.powerReader.reinitialize()
+                return 1.0
+            }
+            // Warm-up grace: give the rebuilt client a few ticks to populate
+            // before declaring a real failure. Still no disarm here.
+            if criticalAbsentTicks < Self.sensorFailureGraceTicks {
+                return 1.0
+            }
+            // Sustained absence → genuine sensor failure.
+            logMessage("[ControlLoop] SENSOR FAILURE: critical groups absent for \(criticalAbsentTicks) ticks")
             if state.armed {
-                logMessage("[ControlLoop] Armed mode detected during sensor failure — restoring auto and entering observe")
+                logMessage("[ControlLoop] Armed during sustained sensor failure — restoring auto and entering observe")
                 if state.restoreAuto() {
                     pendingRestore = false
                 } else {
@@ -400,8 +424,15 @@ class DaemonController {
                 state.setArmed(false)
                 saveConfig(state.config)
             }
+            // Rate-limit further rebuilds so a genuinely sensorless state doesn't
+            // churn (and leak-free reinit stays cheap): retry ~every 10 ticks.
+            if criticalAbsentTicks % 10 == 0 {
+                state.sensorReader.reinitialize()
+                state.powerReader.reinitialize()
+            }
             return 5.0  // Return to cool tick, don't make decisions on missing sensors
         }
+        criticalAbsentTicks = 0  // sensors present — reset the grace counter
 
         // Audit H3: frozen-sensor detection. A bit-identical full snapshot for
         // 30 consecutive armed ticks (~60s) means the pipeline is frozen — a
@@ -603,9 +634,14 @@ class DaemonController {
             // We never veto sleep.
             IOAllowPowerChange(powerConnection, Int(bitPattern: argument))
         case kVentusMessageSystemHasPoweredOn:
-            // The control loop resumes on its own tick and re-issues forced
-            // targets if still armed; nothing to force here.
-            logMessage("[Power] System woke — control loop resumes")
+            // The IOHID sensor client and the IOReport power subscription go
+            // STALE across sleep — after wake, reads return nothing and temp
+            // detection dies until the reader is rebuilt. Force both to
+            // reinitialize; the control loop's next tick rebuilds the handles
+            // and re-issues forced targets if still armed.
+            logMessage("[Power] System woke — reinitializing sensor + power readers")
+            state.sensorReader.reinitialize()
+            state.powerReader.reinitialize()
         default:
             break
         }

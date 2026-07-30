@@ -7,6 +7,7 @@ struct PopoverView: View {
     // One-time authorization: once granted, profile switches arm/drive the
     // fans directly with no per-action confirmation.
     @AppStorage("controlAuthorized") private var controlAuthorized = false
+    @StateObject private var loginItem = LoginItem()
     @State private var pendingProfile: String?
     @State private var actionTask: Task<Void, Never>?
     @State private var actionGeneration = 0
@@ -97,6 +98,10 @@ struct PopoverView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            if loginItem.isAvailable {
+                loginItemRow
+            }
+
             Button {
                 openMainWindow()
             } label: {
@@ -110,6 +115,26 @@ struct PopoverView: View {
             }
             .buttonStyle(VentusButtonStyle(kind: .secondary))
         }
+    }
+
+    private var loginItemRow: some View {
+        Toggle(isOn: Binding(
+            get: { loginItem.isEnabled },
+            set: { loginItem.setEnabled($0) }
+        )) {
+            Text("Launch Ventus at login")
+                .font(VentusFont.body(12, weight: .medium))
+                .foregroundStyle(VentusPalette.ink)
+        }
+        .toggleStyle(.switch)
+        .tint(VentusPalette.accent)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 8)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(VentusPalette.well)
+        }
+        .onAppear { loginItem.refresh() }
     }
 
     private var unreachableContent: some View {

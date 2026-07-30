@@ -197,11 +197,22 @@ struct PopoverView: View {
             _ = await previous?.value
             guard gen == actionGeneration else { return }
             await body(gen)
-            // The optimistic override lives ONLY for the in-flight window. Every
-            // observer action already refreshes status before returning, so by
-            // now observer.status reflects the outcome — clear the override and
-            // hand rendering back to daemon truth. Otherwise a later external
-            // profile change (ventusctl, a rule) would be masked forever.
+            guard gen == actionGeneration else { return }
+            // Hold the optimistic override until the daemon's PUBLISHED status
+            // actually reflects our change. The daemon republishes only on its
+            // ~1-2s control-loop tick, NOT on the mutation, so clearing the
+            // override the instant the transaction returns would flash the
+            // pre-tick profile for up to a tick. Wait for truth to catch up —
+            // with a bounded fallback so a rejected / superseded / externally
+            // changed selection is never masked indefinitely (the fallback,
+            // not equality, is what prevents the permanent-mask bug).
+            let deadline = Date().addingTimeInterval(3.5)
+            while gen == actionGeneration,
+                  let target = optimisticSelection,
+                  observer.status.map(daemonSelection) != target,
+                  Date() < deadline {
+                try? await Task.sleep(nanoseconds: 150_000_000)
+            }
             guard gen == actionGeneration else { return }
             optimisticSelection = nil
         }

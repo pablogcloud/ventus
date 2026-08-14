@@ -555,21 +555,27 @@ final class VentusCoreTests: XCTestCase {
         XCTAssertFalse(watchdog.isStalled(now: now))
     }
 
+    /// Rewritten in v1.0.4: these previously asserted that a FUTURE WALL-CLOCK
+    /// `Date` trips the stall — i.e. they encoded the very bug that made every
+    /// system wake look like a multi-minute control-loop hang. Staleness is now
+    /// measured on the sleep-excluding uptime clock, so these exercise real
+    /// elapsed time instead.
     func testControlLoopWatchdog_Stalled() {
-        let watchdog = ControlLoopWatchdog(stallThresholdS: 10)
+        let watchdog = ControlLoopWatchdog(stallThresholdS: 0.05)
         watchdog.recordHeartbeat()
+        XCTAssertFalse(watchdog.isStalled(now: Date()))
 
-        let later = Date(timeIntervalSinceNow: 11)
-        XCTAssertTrue(watchdog.isStalled(now: later))
+        Thread.sleep(forTimeInterval: 0.15)   // real elapsed time, not a clock jump
+        XCTAssertTrue(watchdog.isStalled(now: Date()))
     }
 
     func testControlLoopWatchdog_SecondsElapsed() {
         let watchdog = ControlLoopWatchdog(stallThresholdS: 10)
         watchdog.recordHeartbeat()
 
-        let later = Date(timeIntervalSinceNow: 5)
-        let elapsed = watchdog.secondsSinceHeartbeat(now: later)
-        XCTAssert(elapsed > 4.9 && elapsed < 5.1)
+        Thread.sleep(forTimeInterval: 0.2)
+        let elapsed = watchdog.secondsSinceHeartbeat(now: Date())
+        XCTAssert(elapsed > 0.15 && elapsed < 1.0, "expected ~0.2s, got \(elapsed)")
     }
 
     func testSafetySupervisor_Heartbeat() {
@@ -577,7 +583,12 @@ final class VentusCoreTests: XCTestCase {
         let now = Date()
         supervisor.recordHeartbeat(now)
         XCTAssertFalse(supervisor.isControlLoopStalled(now: now))
-        XCTAssertTrue(supervisor.isControlLoopStalled(now: now.addingTimeInterval(11)))
+        // A wall-clock jump (system sleep) must NOT read as a stall — this is
+        // the same class of bug that killed the daemon on every wake.
+        XCTAssertFalse(supervisor.isControlLoopStalled(now: now.addingTimeInterval(11)))
+        // Real elapsed time still trips it.
+        Thread.sleep(forTimeInterval: 0.15)
+        XCTAssertTrue(supervisor.isControlLoopStalled(now: Date(), threshold: 0.05))
     }
 
     // MARK: - Self-CPU Watchdog (3 tests)
@@ -914,5 +925,30 @@ final class ConfigValidationCoverageTests: XCTestCase {
         // Rules may still reference balanced; drop them for this case.
         config.rules = RulesConfig()
         XCTAssertNoThrow(try config.validate())
+    }
+
+    // MARK: - Watchdog sleep regression (v1.0.4)
+
+    /// A system sleep advances the WALL clock but not the uptime clock. The
+    /// watchdog must judge staleness on uptime only — otherwise every wake
+    /// looked like a multi-minute control-loop stall and the daemon killed
+    /// itself (observed: 1436 restarts), losing the user's armed profile.
+    func testWatchdog_WallClockJumpIsNotAStall() {
+        let watchdog = ControlLoopWatchdog(stallThresholdS: 10)
+        watchdog.recordHeartbeat()
+        // Simulate waking after an hour of sleep: wall clock leapt forward.
+        let anHourLater = Date().addingTimeInterval(3600)
+        XCTAssertFalse(
+            watchdog.isStalled(now: anHourLater),
+            "A wall-clock jump (system sleep) must not be treated as a stall"
+        )
+        XCTAssertLessThan(watchdog.secondsSinceHeartbeat(now: anHourLater), 10)
+    }
+
+    func testWatchdog_UptimeClockIsMonotonic() {
+        let first = ControlLoopWatchdog.uptimeSeconds()
+        let second = ControlLoopWatchdog.uptimeSeconds()
+        XCTAssertGreaterThanOrEqual(second, first)
+        XCTAssertGreaterThan(first, 0)
     }
 }

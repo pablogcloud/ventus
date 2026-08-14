@@ -19,6 +19,11 @@ public final class SafetySupervisor: Sendable {
     /// Last heartbeat time from the control loop.
     private var lastHeartbeat: Date?
 
+    /// Uptime stamp of the last heartbeat (excludes time asleep). This is what
+    /// stall detection compares against; `lastHeartbeat` is retained only as
+    /// informational wall-clock context.
+    private var lastHeartbeatUptime: TimeInterval?
+
     /// Last CPU usage reading.
     private var lastCPUReading: (timestamp: Date, rusageSecs: Double)?
 
@@ -50,14 +55,22 @@ public final class SafetySupervisor: Sendable {
     public func recordHeartbeat(_ now: Date) {
         lock.withLock {
             lastHeartbeat = now
+            lastHeartbeatUptime = ControlLoopWatchdog.uptimeSeconds()
         }
     }
 
     /// Checks if the watchdog has detected a stall (>threshold seconds since heartbeat).
+    ///
+    /// Staleness is measured against the recorded heartbeat's UPTIME stamp, not
+    /// the wall clock, for the same reason as ControlLoopWatchdog: system sleep
+    /// advances wall time while the control loop is frozen, and treating that as
+    /// a stall killed the daemon on every wake. This path is not currently wired
+    /// into the kill decision, but it must not become a way to reintroduce that
+    /// bug. `now` is retained for source compatibility and ignored.
     public func isControlLoopStalled(now: Date, threshold: TimeInterval = 10.0) -> Bool {
         return lock.withLock {
-            guard let last = lastHeartbeat else { return false }
-            return now.timeIntervalSince(last) > threshold
+            guard let last = lastHeartbeatUptime else { return false }
+            return ControlLoopWatchdog.uptimeSeconds() - last > threshold
         }
     }
 
@@ -128,35 +141,49 @@ public final class SafetySupervisor: Sendable {
 /// Thread-safe: all state protected by lock.
 public final class ControlLoopWatchdog: Sendable {
     private let stallThresholdS: TimeInterval
-    private var lastHeartbeat: Date
+    /// Seconds on the UPTIME clock, NOT wall clock. CLOCK_UPTIME_RAW is
+    /// monotonic and does not advance while the system is asleep — the whole
+    /// point here. With wall-clock `Date()`, a 5-minute sleep looked like a
+    /// 5-minute control-loop stall the instant the Mac woke, so the watchdog
+    /// killed the daemon on EVERY wake (1436 times in one log). launchd
+    /// restarted it, and startup forces observe mode, so the user's armed
+    /// profile was silently forgotten after every sleep.
+    private var lastHeartbeat: TimeInterval
     private let logger: (String) -> Void
     /// FIX #9: Lock for thread-safe heartbeat access
     private let lock = NSLock()
 
+    /// Monotonic seconds since boot, EXCLUDING time spent asleep.
+    public static func uptimeSeconds() -> TimeInterval {
+        TimeInterval(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1_000_000_000
+    }
+
     public init(stallThresholdS: TimeInterval = 10.0, logger: @escaping (String) -> Void = { _ in }) {
         self.stallThresholdS = stallThresholdS
-        self.lastHeartbeat = Date()
+        self.lastHeartbeat = Self.uptimeSeconds()
         self.logger = logger
     }
 
     /// Records a heartbeat from the control loop (no parameter — uses current time).
     public func recordHeartbeat() {
         lock.withLock {
-            lastHeartbeat = Date()
+            lastHeartbeat = Self.uptimeSeconds()
         }
     }
 
-    /// Checks if the loop is stalled.
+    /// Checks if the loop is stalled. `now` is accepted for source
+    /// compatibility but ignored: staleness is measured on the sleep-excluding
+    /// uptime clock so sleep can never be mistaken for a stall.
     public func isStalled(now: Date) -> Bool {
         return lock.withLock {
-            return now.timeIntervalSince(lastHeartbeat) > stallThresholdS
+            return Self.uptimeSeconds() - lastHeartbeat > stallThresholdS
         }
     }
 
-    /// Returns seconds since last heartbeat.
+    /// Returns seconds since last heartbeat (uptime clock, excludes sleep).
     public func secondsSinceHeartbeat(now: Date) -> TimeInterval {
         return lock.withLock {
-            return now.timeIntervalSince(lastHeartbeat)
+            return Self.uptimeSeconds() - lastHeartbeat
         }
     }
 }

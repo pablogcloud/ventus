@@ -444,6 +444,13 @@ extension TelemetrySnapshot {
         sensors.first { $0.groupName == groupName }?.meanTemp
     }
 
+    /// Hottest individual reading WITHIN one group. Use for anything
+    /// safety-relevant: the daemon's 95C override triggers on the hottest
+    /// sensor, so status indicators must track this, not the mean.
+    func peakTemperature(for groupName: String) -> Double? {
+        sensors.first { $0.groupName == groupName }?.maxTemp
+    }
+
     /// Hottest INDIVIDUAL reading across all groups. Only for surfaces that
     /// explicitly say "peak"; never mix this with the headline numbers above.
     var hottestTemperature: Double? {

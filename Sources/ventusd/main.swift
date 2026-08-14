@@ -572,8 +572,14 @@ class DaemonController {
         }
     }
 
+    /// Staleness at which the watchdog hands fans back to Apple auto WITHOUT
+    /// killing the daemon. Well under the stall threshold so thermal protection
+    /// never depends on a 30s hang timer.
+    private static let earlyRestoreS: TimeInterval = 8
+
     private func runWatchdog() {
         logMessage("[Watchdog] Starting independent watchdog thread")
+        var earlyRestoreDone = false
 
         while shouldKeepRunning {
             Thread.sleep(forTimeInterval: 0.5)
@@ -584,8 +590,27 @@ class DaemonController {
             // via the owner; whether or not it verifies in time, we ALWAYS exit —
             // death drops our forced-mode claim and launchd restarts us into the
             // startup restore. That die-and-restart is the always-available backstop.
+            // Tiered response. The 95C thermal override lives INSIDE the control
+            // loop, so a hung loop means no override — waiting the full stall
+            // threshold before acting would leave fans pinned at a stale target
+            // with no thermal protection. So:
+            //   >= earlyRestoreS: hand the fans back to Apple auto immediately.
+            //     Apple's own controller is thermally safe, this is reversible
+            //     (the loop re-forces on its next tick), and it does NOT kill the
+            //     daemon — so mere CPU starvation costs a brief handover instead
+            //     of a self-kill loop that forgets the user's profile.
+            //   >= stall threshold: genuine hang — emergency restore + exit so
+            //     launchd restarts us into the startup restore.
+            let stallTime = state.heartbeatWatchdog.secondsSinceHeartbeat(now: now)
+            if stallTime >= Self.earlyRestoreS, state.armed, !earlyRestoreDone {
+                earlyRestoreDone = true
+                logMessage("[Watchdog] Control loop stale \(String(format: "%.1f", stallTime))s — releasing fans to Apple auto (no exit)")
+                _ = state.restoreAuto(deadline: 2)
+            }
+            if stallTime < Self.earlyRestoreS {
+                earlyRestoreDone = false   // loop is healthy again
+            }
             if state.heartbeatWatchdog.isStalled(now: now) {
-                let stallTime = state.heartbeatWatchdog.secondsSinceHeartbeat(now: now)
                 logMessage("[Watchdog] Control loop stalled \(String(format: "%.1f", stallTime))s — emergency restore + exit")
                 state.emergencyRestore()
                 exit(1)
@@ -653,11 +678,11 @@ class DaemonController {
             logMessage("[Power] System woke — reinitializing sensor + power readers")
             state.sensorReader.reinitialize()
             state.powerReader.reinitialize()
-            // Belt-and-braces: the watchdog already measures staleness on the
-            // sleep-excluding uptime clock, but stamp a fresh heartbeat anyway
-            // so the first post-wake tick can never be judged against a
-            // pre-sleep timestamp while the control-loop timer respins.
-            state.heartbeatWatchdog.recordHeartbeat()
+            // Deliberately NO recordHeartbeat() here. Only the control loop may
+            // attest its own liveness; stamping from the power queue would hand
+            // a loop that died BEFORE sleep a fresh lease on wake. The uptime
+            // clock already excludes the sleep interval, so a live loop's
+            // heartbeat age is preserved correctly across sleep with no help.
         default:
             break
         }

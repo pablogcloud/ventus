@@ -44,14 +44,16 @@ struct DashboardTabView: View {
             HStack(alignment: .top, spacing: 14) {
                 ThermalGaugeCard(
                     title: "CPU package",
-                    temperature: status.temperature(for: "cpu_perf") ?? status.hottestTemperature
+                    temperature: status.temperature(for: "cpu_perf") ?? status.hottestTemperature,
+                    peak: status.peakTemperature(for: "cpu_perf")
                 )
                 .frame(maxWidth: .infinity)
                 .ventusCard()
 
                 ThermalGaugeCard(
                     title: "GPU",
-                    temperature: status.temperature(for: "gpu")
+                    temperature: status.temperature(for: "gpu"),
+                    peak: status.peakTemperature(for: "gpu")
                 )
                 .frame(maxWidth: .infinity)
                 .ventusCard()
@@ -77,8 +79,8 @@ struct DashboardTabView: View {
     private func appendHistory(_ status: TelemetrySnapshot) {
         for sensor in status.sensors {
             var values = histories[sensor.groupName, default: []]
-            if values.last != sensor.meanTemp || values.isEmpty {
-                values.append(sensor.meanTemp)
+            if values.last != sensor.maxTemp || values.isEmpty {
+                values.append(sensor.maxTemp)
             }
             histories[sensor.groupName] = Array(values.suffix(300))
         }
@@ -396,7 +398,14 @@ private struct DieRegion: View {
 
 private struct ThermalGaugeCard: View {
     let title: String
+    /// Group MEAN — the number the curve engine drives fans with, and what the
+    /// menu bar shows. Displayed as the headline value.
     let temperature: Double?
+    /// Hottest INDIVIDUAL sensor in the group. Status (Normal/Elevated/Hot)
+    /// derives from THIS, because the daemon's 95C override also triggers on the
+    /// hottest sensor — a cool mean must never show "Normal" while a single
+    /// sensor is hot enough to force max fans.
+    var peak: Double? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -420,14 +429,14 @@ private struct ThermalGaugeCard: View {
     }
 
     private var statusColor: Color {
-        guard let temperature else { return VentusPalette.ink3 }
+        guard let temperature = peak ?? temperature else { return VentusPalette.ink3 }
         if temperature >= 85 { return VentusPalette.hot }
         if temperature >= 72 { return VentusPalette.warn }
         return VentusPalette.good
     }
 
     private var statusLabel: String {
-        guard let temperature else { return "No reading" }
+        guard let temperature = peak ?? temperature else { return "No reading" }
         if temperature >= 85 { return "Hot" }
         if temperature >= 72 { return "Elevated" }
         return "Normal"
@@ -504,7 +513,7 @@ private struct ThermalHistoryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VentusSectionHeader(title: "Thermal history", detail: "Up to 10 min")
+            VentusSectionHeader(title: "Thermal history", detail: "Peak · up to 10 min")
             ForEach(status.sensors.sorted { $0.groupName < $1.groupName }, id: \.groupName) { sensor in
                 VStack(spacing: 5) {
                     HStack {
@@ -512,11 +521,11 @@ private struct ThermalHistoryCard: View {
                             .font(VentusFont.body(12))
                             .foregroundStyle(VentusPalette.ink2)
                         Spacer()
-                        Text(String(format: "%.0f°C", sensor.meanTemp))
+                        Text(String(format: "%.0f°C", sensor.maxTemp))
                             .font(VentusFont.number(13, weight: .semibold))
                             .foregroundStyle(VentusPalette.ink)
                     }
-                    Sparkline(values: histories[sensor.groupName] ?? [sensor.meanTemp])
+                    Sparkline(values: histories[sensor.groupName] ?? [sensor.maxTemp])
                         .frame(height: 34)
                 }
             }

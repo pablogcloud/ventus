@@ -104,7 +104,12 @@ final class DaemonState {
         self.curveEngine = CurveEngine(logger: logMessage)
         self.ruleEngine = RuleEngine(logger: logMessage)
         self.supervisor = SafetySupervisor(armed: config.armed, logger: logMessage)
-        self.heartbeatWatchdog = ControlLoopWatchdog(stallThresholdS: 10, logger: logMessage)
+        // 30s, not 10s: the threshold must exceed worst-case scheduling delay
+        // under extreme load, or the watchdog turns a busy machine into a
+        // self-kill loop. A genuine hang still trips well before thermals
+        // matter — fans hold their last commanded RPM meanwhile, they do not
+        // drop to zero.
+        self.heartbeatWatchdog = ControlLoopWatchdog(stallThresholdS: 30, logger: logMessage)
         self.cpuWatchdog = SelfCPUWatchdog(logger: logMessage)
         self.startTime = Date()
         self.hardwareOwner = smc.map { HardwareOwner(hardware: $0, logger: logMessage) }
@@ -204,9 +209,15 @@ final class DaemonState {
 class DaemonController {
     private let state: DaemonState
     private let dryRun: Bool
-    private let serialQueue = DispatchQueue(label: "com.formm.ventus.control-loop", qos: .utility)
+    // .userInitiated, not .utility: under a saturating workload (a full Swift
+    // build, a render, a game) a utility-QoS queue can be starved for tens of
+    // seconds. That looked like a control-loop hang, so the watchdog killed the
+    // daemon — losing the user's armed profile precisely when a fan controller
+    // matters most. The loop is a sub-1%-CPU tick; the higher band costs
+    // nothing and keeps it scheduled promptly under load.
+    private let serialQueue = DispatchQueue(label: "com.formm.ventus.control-loop", qos: .userInitiated)
     private var controlLoopTimer: DispatchSourceTimer?
-    private let watchdogQueue = DispatchQueue(label: "com.formm.ventus.watchdog", qos: .utility)
+    private let watchdogQueue = DispatchQueue(label: "com.formm.ventus.watchdog", qos: .userInitiated)
     private var shouldKeepRunning = true
     private var pendingRestore = false
     /// Audit C5/C8: consecutive armed-mode command failures (failed writes,

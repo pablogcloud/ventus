@@ -1,6 +1,9 @@
 import SwiftUI
 import AppKit
 import Combine
+#if DEBUG
+import SceneKit
+#endif
 
 @main
 struct VentusApp: App {
@@ -103,6 +106,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.closePanel()
                     case "frames":
                         self.dumpDebugFrames()
+                    case "rendercup":
+                        self.renderCupSamples()
                     case "pin":
                         self.debugPinned = true
                     case "unpin":
@@ -425,6 +430,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.sendEvent(event)
         }
     }
+
+    /// Renders the 3D tip cup offscreen at each tier and writes PNGs to /tmp.
+    /// A sheet cannot be captured by window id, so this verifies the actual
+    /// SceneKit output — geometry, morph blend, materials, lighting — with no
+    /// window and without disturbing whatever the user is doing.
+    private func renderCupSamples() {
+        for amount in [5.0, 10.0, 20.0, 35.0] {
+            let view = SCNView(frame: NSRect(x: 0, y: 0, width: 460, height: 460))
+            let coordinator = CupScene3D.Coordinator()
+            view.scene = coordinator.buildScene()
+            view.backgroundColor = NSColor(calibratedWhite: 0.94, alpha: 1)
+            view.antialiasingMode = .multisampling4X
+            coordinator.apply(amount: amount, reduceMotion: true)
+            let image = view.snapshot()
+            guard let tiff = image.tiffRepresentation,
+                  let rep = NSBitmapImageRep(data: tiff),
+                  let png = rep.representation(using: .png, properties: [:])
+            else { continue }
+            try? png.write(to: URL(fileURLWithPath: "/tmp/ventus-cup-\(Int(amount)).png"))
+        }
+        logMessageApp("[Debug] rendered cup samples to /tmp/ventus-cup-*.png")
+    }
+
+    private func logMessageApp(_ s: String) { appLog.log("\(s, privacy: .public)") }
 
     private func dumpDebugFrames() {
         var lines: [String] = []

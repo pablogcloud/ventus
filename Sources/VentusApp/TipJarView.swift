@@ -21,13 +21,26 @@ struct TipJarView: View {
         VStack(spacing: 0) {
             header
 
-            CoffeeCup3D(amount: amount)
-                .frame(height: 190)
-                .padding(.top, 4)
-                .animation(
-                    reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.78),
-                    value: amount
-                )
+            // Real 3D scene. The soft contact shadow stays a SwiftUI ellipse
+            // behind the transparent SCNView — cheaper and better-controlled
+            // than a shadow-catching floor plane, and it tracks the sheet
+            // background in both appearances.
+            ZStack {
+                Ellipse()
+                    .fill(
+                        RadialGradient(
+                            colors: [VentusPalette.shadow.opacity(0.5), .clear],
+                            center: .center, startRadius: 0, endRadius: 62
+                        )
+                    )
+                    .frame(width: 150, height: 34)
+                    .blur(radius: 5)
+                    .offset(y: 76)
+
+                CupScene3D(amount: amount, reduceMotion: reduceMotion)
+            }
+            .frame(height: 210)
+            .padding(.top, 4)
 
             amountReadout
             slider

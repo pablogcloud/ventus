@@ -434,10 +434,18 @@ struct TelemetrySnapshot: Codable, Sendable {
 }
 
 extension TelemetrySnapshot {
+    /// Headline temperature for a group: the GROUP MEAN, because that is the
+    /// value the daemon's curve engine actually blends to drive the fans
+    /// (CurveEngine.updateEMA uses GroupReading.mean). Showing the group max
+    /// here made the panel/dashboard disagree with the menu bar (which shows
+    /// the mean) — the same "CPU" label reporting two different numbers — and
+    /// made the reading jump on transient single-sensor spikes.
     func temperature(for groupName: String) -> Double? {
-        sensors.first { $0.groupName == groupName }?.maxTemp
+        sensors.first { $0.groupName == groupName }?.meanTemp
     }
 
+    /// Hottest INDIVIDUAL reading across all groups. Only for surfaces that
+    /// explicitly say "peak"; never mix this with the headline numbers above.
     var hottestTemperature: Double? {
         sensors.map(\.maxTemp).max()
     }

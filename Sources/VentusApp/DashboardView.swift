@@ -77,8 +77,8 @@ struct DashboardTabView: View {
     private func appendHistory(_ status: TelemetrySnapshot) {
         for sensor in status.sensors {
             var values = histories[sensor.groupName, default: []]
-            if values.last != sensor.maxTemp || values.isEmpty {
-                values.append(sensor.maxTemp)
+            if values.last != sensor.meanTemp || values.isEmpty {
+                values.append(sensor.meanTemp)
             }
             histories[sensor.groupName] = Array(values.suffix(300))
         }
@@ -512,11 +512,11 @@ private struct ThermalHistoryCard: View {
                             .font(VentusFont.body(12))
                             .foregroundStyle(VentusPalette.ink2)
                         Spacer()
-                        Text(String(format: "%.0f°C", sensor.maxTemp))
+                        Text(String(format: "%.0f°C", sensor.meanTemp))
                             .font(VentusFont.number(13, weight: .semibold))
                             .foregroundStyle(VentusPalette.ink)
                     }
-                    Sparkline(values: histories[sensor.groupName] ?? [sensor.maxTemp])
+                    Sparkline(values: histories[sensor.groupName] ?? [sensor.meanTemp])
                         .frame(height: 34)
                 }
             }

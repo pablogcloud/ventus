@@ -642,6 +642,11 @@ class DaemonController {
             logMessage("[Power] System woke — reinitializing sensor + power readers")
             state.sensorReader.reinitialize()
             state.powerReader.reinitialize()
+            // Belt-and-braces: the watchdog already measures staleness on the
+            // sleep-excluding uptime clock, but stamp a fresh heartbeat anyway
+            // so the first post-wake tick can never be judged against a
+            // pre-sleep timestamp while the control-loop timer respins.
+            state.heartbeatWatchdog.recordHeartbeat()
         default:
             break
         }

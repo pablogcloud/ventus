@@ -59,6 +59,36 @@ struct CupStyle {
         )),
     ]
 
+    /// Numeric-only slice of the keyframes. `interpolated` builds `Color`
+    /// values, and converting those touches AppKit — the render thread needs
+    /// the shape weights without dragging colour conversion along.
+    struct ShapeWeights {
+        var whip: CGFloat
+        var straw: CGFloat
+        var steam: CGFloat
+    }
+
+    static func shape(for amount: Double) -> ShapeWeights {
+        let frames = keyframes
+        func w(_ f: CupStyle) -> ShapeWeights {
+            ShapeWeights(whip: f.whip, straw: f.straw, steam: f.steam)
+        }
+        if amount <= frames.first!.amount { return w(frames.first!.style) }
+        if amount >= frames.last!.amount { return w(frames.last!.style) }
+        for i in 0 ..< (frames.count - 1) {
+            let a = frames[i], b = frames[i + 1]
+            guard amount <= b.amount else { continue }
+            let raw = (amount - a.amount) / (b.amount - a.amount)
+            let t = CGFloat(raw * raw * (3 - 2 * raw))
+            return ShapeWeights(
+                whip: a.style.whip + (b.style.whip - a.style.whip) * t,
+                straw: a.style.straw + (b.style.straw - a.style.straw) * t,
+                steam: a.style.steam + (b.style.steam - a.style.steam) * t
+            )
+        }
+        return w(frames.last!.style)
+    }
+
     static func interpolated(for amount: Double) -> CupStyle {
         let frames = keyframes
         if amount <= frames.first!.amount { return frames.first!.style }

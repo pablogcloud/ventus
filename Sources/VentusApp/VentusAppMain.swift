@@ -436,13 +436,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// SceneKit output — geometry, morph blend, materials, lighting — with no
     /// window and without disturbing whatever the user is doing.
     private func renderCupSamples() {
-        for amount in [5.0, 10.0, 20.0, 35.0] {
+        // The last entry poses a mid-drag slosh so the surface deformation is
+        // verifiable; the rest are the tiers at rest.
+        let poses: [(name: String, amount: Double, tilt: CGFloat, ripple: CGFloat)] = [
+            ("5", 5, 0, 0), ("10", 10, 0, 0), ("20", 20, 0, 0), ("35", 35, 0, 0),
+            ("slosh", 35, 0.13, 0.026),
+        ]
+        for pose in poses {
             let view = SCNView(frame: NSRect(x: 0, y: 0, width: 460, height: 460))
             let coordinator = CupScene3D.Coordinator()
             view.scene = coordinator.buildScene()
             view.backgroundColor = NSColor(calibratedWhite: 0.94, alpha: 1)
             view.antialiasingMode = .multisampling4X
-            coordinator.apply(amount: amount, reduceMotion: true)
+            coordinator.attach(to: view)
+            coordinator.apply(amount: pose.amount, reduceMotion: true)
+            coordinator.debugPose(
+                amount: pose.amount, tiltX: pose.tilt, ripple: pose.ripple, phase: 1.1
+            )
             let image = view.snapshot()
             guard let tiff = image.tiffRepresentation,
                   let rep = NSBitmapImageRep(data: tiff),
@@ -451,7 +461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // /tmp is world-writable, so a pre-planted symlink at this
             // predictable name would redirect the write. Drop whatever is
             // there and refuse to follow anything that reappears.
-            let out = URL(fileURLWithPath: "/tmp/ventus-cup-\(Int(amount)).png")
+            let out = URL(fileURLWithPath: "/tmp/ventus-cup-\(pose.name).png")
             try? FileManager.default.removeItem(at: out)
             try? png.write(to: out, options: [.withoutOverwriting])
         }

@@ -141,6 +141,7 @@ struct VentusUnavailableState: View {
 struct MainWindowView: View {
     @ObservedObject var observer: DaemonClientObserver
     @State private var selectedTab = 0
+    @State private var showTipJar = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var fanControlAvailable: Bool {
@@ -164,6 +165,7 @@ struct MainWindowView: View {
         .foregroundStyle(VentusPalette.ink)
         .frame(minWidth: 780, idealWidth: 920, minHeight: 620, idealHeight: 720)
         .background(GlassBackdrop().ignoresSafeArea())
+        .sheet(isPresented: $showTipJar) { TipJarView() }
         .onChange(of: fanControlAvailable) { _, isAvailable in
             if !isAvailable {
                 selectedTab = 0
@@ -204,7 +206,7 @@ struct MainWindowView: View {
                         .foregroundStyle(VentusPalette.ink2)
                 }
             } else {
-                SupportLink()
+                SupportLink { showTipJar = true }
             }
         }
         .padding(.leading, 78)
@@ -294,12 +296,14 @@ func ventusSensorLabel(_ group: String) -> String {
 struct SupportLink: View {
     @State private var isHovering = false
 
-    private static let url = URL(string: "https://ko-fi.com/ventusapp")!
+    /// Action is injected so the header can present the tip sheet rather than
+    /// dumping the user straight into a browser.
+    var action: () -> Void = {
+        NSWorkspace.shared.open(URL(string: "https://ko-fi.com/pablogv")!)
+    }
 
     var body: some View {
-        Button {
-            NSWorkspace.shared.open(Self.url)
-        } label: {
+        Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: isHovering ? "heart.fill" : "heart")
                     .font(.system(size: 10, weight: .semibold))
@@ -317,7 +321,7 @@ struct SupportLink: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: 0.14), value: isHovering)
-        .help("Support Ventus development on Ko-fi")
+        .help("Support Ventus development")
         .accessibilityLabel("Support Ventus development")
     }
 }

@@ -109,7 +109,7 @@ Ventus is built and maintained by one person. If it is useful to you and you
 built it from source rather than buying a licence, a contribution genuinely
 helps — and is never required.
 
-- **[Ko-fi](https://ko-fi.com/ventusapp)** — one-off or monthly, no account
+- **[Ko-fi](https://ko-fi.com/pablogv)** — one-off or monthly, no account
   needed to donate.
 - **GitHub Sponsors** — use the ❤️ Sponsor button at the top of this page.
 

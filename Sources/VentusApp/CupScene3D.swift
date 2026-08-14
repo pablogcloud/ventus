@@ -140,28 +140,91 @@ struct CupScene3D: NSViewRepresentable {
         view.scene = context.coordinator.buildScene()
         view.backgroundColor = .clear
         view.antialiasingMode = .multisampling4X
-        view.isPlaying = true                 // drive the idle spin
-        view.rendersContinuously = !reduceMotion
         view.allowsCameraControl = false
+        context.coordinator.attach(to: view)
         context.coordinator.apply(amount: amount, reduceMotion: reduceMotion)
         return view
     }
 
     func updateNSView(_ view: SCNView, context: Context) {
-        view.rendersContinuously = !reduceMotion
         context.coordinator.apply(amount: amount, reduceMotion: reduceMotion)
+    }
+
+    static func dismantleNSView(_ view: SCNView, coordinator: Coordinator) {
+        coordinator.detach()
     }
 
     @MainActor
     final class Coordinator {
+        /// Everything that makes up the drink, so the turntable rotates one
+        /// object. Spinning only the cup would leave the straw hanging still.
+        private var assemblyNode = SCNNode()
         private var cupNode = SCNNode()
         private var liquidNode = SCNNode()
         private var creamNodes: [SCNNode] = []
         private var strawNode = SCNNode()
-        private var spinning = false
+        private var reduceMotion = false
+
+        private weak var view: SCNView?
+        private var activityObservers: [NSObjectProtocol] = []
+
+        private static let spinKey = "ventus.cup.turntable"
+
+        // MARK: - Playback
+
+        /// A menu-bar app is resident for days, so the renderer must never run
+        /// on a sheet nobody is looking at: rendering is gated on the app being
+        /// active as well as on Reduce Motion.
+        func attach(to view: SCNView) {
+            self.view = view
+            let center = NotificationCenter.default
+            for name in [NSApplication.didBecomeActiveNotification,
+                         NSApplication.didResignActiveNotification] {
+                activityObservers.append(
+                    center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                        MainActor.assumeIsolated { self?.refreshPlayback() }
+                    }
+                )
+            }
+            refreshPlayback()
+        }
+
+        func detach() {
+            activityObservers.forEach(NotificationCenter.default.removeObserver)
+            activityObservers = []
+            assemblyNode.removeAction(forKey: Self.spinKey)
+            view?.isPlaying = false
+            view?.rendersContinuously = false
+            view = nil
+        }
+
+        deinit {
+            activityObservers.forEach(NotificationCenter.default.removeObserver)
+        }
+
+        private func refreshPlayback() {
+            let live = !reduceMotion && NSApp.isActive
+            view?.isPlaying = live
+            view?.rendersContinuously = live
+
+            // Reduce Motion can be switched on while the sheet is open, so the
+            // action has to be removable, not just skippable at start-up.
+            if live {
+                if assemblyNode.action(forKey: Self.spinKey) == nil {
+                    assemblyNode.runAction(
+                        .repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: 26)),
+                        forKey: Self.spinKey
+                    )
+                }
+            } else {
+                assemblyNode.removeAction(forKey: Self.spinKey)
+            }
+        }
 
         func buildScene() -> SCNScene {
             let scene = SCNScene()
+            assemblyNode = SCNNode()
+            scene.rootNode.addChildNode(assemblyNode)
 
             // Cup: tier 0 is the base mesh, tiers 1–3 are morph targets.
             let base = CupMesh.lathe(CupMesh.tiers[0])
@@ -177,7 +240,7 @@ struct CupScene3D: NSViewRepresentable {
             morpher.targets = CupMesh.tiers.dropFirst().map { CupMesh.lathe($0) }
             morpher.calculationMode = .normalized
             cupNode.morpher = morpher
-            scene.rootNode.addChildNode(cupNode)
+            assemblyNode.addChildNode(cupNode)
 
             // Liquid disc, parented to the cup so it morphs along in position.
             let disc = SCNCylinder(radius: 0.34, height: 0.012)
@@ -187,7 +250,7 @@ struct CupScene3D: NSViewRepresentable {
             liquidMaterial.metalness.contents = 0.0
             disc.materials = [liquidMaterial]
             liquidNode = SCNNode(geometry: disc)
-            scene.rootNode.addChildNode(liquidNode)
+            assemblyNode.addChildNode(liquidNode)
 
             // Whipped cream: three stacked, offset spheres.
             for i in 0 ..< 3 {
@@ -202,7 +265,7 @@ struct CupScene3D: NSViewRepresentable {
                     CGFloat(i % 2 == 0 ? -0.02 : 0.02), 0, CGFloat(i) * 0.015
                 )
                 creamNodes.append(n)
-                scene.rootNode.addChildNode(n)
+                assemblyNode.addChildNode(n)
             }
 
             // Straw, in the Ventus accent.
@@ -214,7 +277,7 @@ struct CupScene3D: NSViewRepresentable {
             straw.materials = [strawMaterial]
             strawNode = SCNNode(geometry: straw)
             strawNode.eulerAngles.z = -0.28
-            scene.rootNode.addChildNode(strawNode)
+            assemblyNode.addChildNode(strawNode)
 
             // Lighting: warm key with soft shadow, cool fill, low ambient.
             let key = SCNNode()
@@ -313,13 +376,8 @@ struct CupScene3D: NSViewRepresentable {
 
             SCNTransaction.commit()
 
-            // Slow idle turntable — started once, and never under Reduce Motion.
-            if !reduceMotion, !spinning {
-                spinning = true
-                cupNode.runAction(.repeatForever(
-                    .rotateBy(x: 0, y: .pi * 2, z: 0, duration: 26)
-                ))
-            }
+            self.reduceMotion = reduceMotion
+            refreshPlayback()
         }
 
         /// Blends two SwiftUI colours into one NSColor for a PBR diffuse slot.

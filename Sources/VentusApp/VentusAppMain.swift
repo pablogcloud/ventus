@@ -448,7 +448,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                   let rep = NSBitmapImageRep(data: tiff),
                   let png = rep.representation(using: .png, properties: [:])
             else { continue }
-            try? png.write(to: URL(fileURLWithPath: "/tmp/ventus-cup-\(Int(amount)).png"))
+            // /tmp is world-writable, so a pre-planted symlink at this
+            // predictable name would redirect the write. Drop whatever is
+            // there and refuse to follow anything that reappears.
+            let out = URL(fileURLWithPath: "/tmp/ventus-cup-\(Int(amount)).png")
+            try? FileManager.default.removeItem(at: out)
+            try? png.write(to: out, options: [.withoutOverwriting])
         }
         logMessageApp("[Debug] rendered cup samples to /tmp/ventus-cup-*.png")
     }

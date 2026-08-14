@@ -260,14 +260,17 @@ struct Slosh {
 
     private static let stiffness: CGFloat = 52
     private static let damping: CGFloat = 5.0
-    private static let maxTilt: CGFloat = 0.16
+    /// Kept small on purpose. A wide sway looks like the drink is separating
+    /// from the cup rather than moving inside it.
+    static let maxTilt: CGFloat = 0.055
+    static let maxRipple: CGFloat = 0.014
 
     /// `delta` is the per-second rate of change of the displayed amount, so a
     /// fast drag sloshes hard and a slow one barely disturbs the surface.
     mutating func kick(_ delta: CGFloat) {
-        vx += delta * 0.055
-        vz += delta * 0.022
-        ripple = min(ripple + abs(delta) * 0.0016, 0.030)
+        vx += delta * 0.019
+        vz += delta * 0.008
+        ripple = min(ripple + abs(delta) * 0.0007, Self.maxRipple)
     }
 
     mutating func step(_ dt: CGFloat) {
@@ -367,7 +370,12 @@ final class LiquidAnimator: NSObject, SCNSceneRendererDelegate, @unchecked Senda
         let fillY = LiquidMesh.fillHeight(s)
         let fillR = LiquidMesh.innerRadius(s, atY: fillY)
 
-        liquidSurfaceNode.position = SCNVector3(0, fillY, 0)
+        // Lift the surface by exactly its own deepest dip, so tilting pivots
+        // about the low edge instead of the centre. Otherwise the down-slope
+        // side sinks below the body's open top and you see into the empty
+        // shell — the drink reads as hollow for as long as it is swaying.
+        let dip = sqrt(slosh.tiltX * slosh.tiltX + slosh.tiltZ * slosh.tiltZ) * fillR
+        liquidSurfaceNode.position = SCNVector3(0, fillY + dip + slosh.ripple, 0)
         let surface = LiquidMesh.surface(.init(
             radius: fillR,
             tiltX: slosh.tiltX, tiltZ: slosh.tiltZ,

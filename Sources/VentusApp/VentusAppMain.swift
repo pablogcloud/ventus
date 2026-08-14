@@ -440,7 +440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // verifiable; the rest are the tiers at rest.
         let poses: [(name: String, amount: Double, tilt: CGFloat, ripple: CGFloat)] = [
             ("5", 5, 0, 0), ("10", 10, 0, 0), ("20", 20, 0, 0), ("35", 35, 0, 0),
-            ("slosh", 35, 0.13, 0.026),
+            ("slosh", 35, Slosh.maxTilt, Slosh.maxRipple),
         ]
         for pose in poses {
             let view = SCNView(frame: NSRect(x: 0, y: 0, width: 460, height: 460))

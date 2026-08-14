@@ -19,6 +19,11 @@ public final class SafetySupervisor: Sendable {
     /// Last heartbeat time from the control loop.
     private var lastHeartbeat: Date?
 
+    /// Uptime stamp of the last heartbeat (excludes time asleep). This is what
+    /// stall detection compares against; `lastHeartbeat` is retained only as
+    /// informational wall-clock context.
+    private var lastHeartbeatUptime: TimeInterval?
+
     /// Last CPU usage reading.
     private var lastCPUReading: (timestamp: Date, rusageSecs: Double)?
 
@@ -50,14 +55,22 @@ public final class SafetySupervisor: Sendable {
     public func recordHeartbeat(_ now: Date) {
         lock.withLock {
             lastHeartbeat = now
+            lastHeartbeatUptime = ControlLoopWatchdog.uptimeSeconds()
         }
     }
 
     /// Checks if the watchdog has detected a stall (>threshold seconds since heartbeat).
+    ///
+    /// Staleness is measured against the recorded heartbeat's UPTIME stamp, not
+    /// the wall clock, for the same reason as ControlLoopWatchdog: system sleep
+    /// advances wall time while the control loop is frozen, and treating that as
+    /// a stall killed the daemon on every wake. This path is not currently wired
+    /// into the kill decision, but it must not become a way to reintroduce that
+    /// bug. `now` is retained for source compatibility and ignored.
     public func isControlLoopStalled(now: Date, threshold: TimeInterval = 10.0) -> Bool {
         return lock.withLock {
-            guard let last = lastHeartbeat else { return false }
-            return now.timeIntervalSince(last) > threshold
+            guard let last = lastHeartbeatUptime else { return false }
+            return ControlLoopWatchdog.uptimeSeconds() - last > threshold
         }
     }
 

@@ -583,7 +583,12 @@ final class VentusCoreTests: XCTestCase {
         let now = Date()
         supervisor.recordHeartbeat(now)
         XCTAssertFalse(supervisor.isControlLoopStalled(now: now))
-        XCTAssertTrue(supervisor.isControlLoopStalled(now: now.addingTimeInterval(11)))
+        // A wall-clock jump (system sleep) must NOT read as a stall — this is
+        // the same class of bug that killed the daemon on every wake.
+        XCTAssertFalse(supervisor.isControlLoopStalled(now: now.addingTimeInterval(11)))
+        // Real elapsed time still trips it.
+        Thread.sleep(forTimeInterval: 0.15)
+        XCTAssertTrue(supervisor.isControlLoopStalled(now: Date(), threshold: 0.05))
     }
 
     // MARK: - Self-CPU Watchdog (3 tests)

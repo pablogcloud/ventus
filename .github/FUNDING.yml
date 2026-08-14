@@ -1,0 +1,14 @@
+# Shows the ❤️ Sponsor button on the repository.
+#
+# Setup notes:
+#  - github:  requires enrolling at https://github.com/sponsors (payouts are
+#             set up through Stripe Connect; confirm availability for your
+#             country during enrolment).
+#  - ko_fi:   create the page at https://ko-fi.com and put the handle below.
+#             Ko-fi needs no account from the donor, which is why it is the
+#             link used inside the app itself.
+# Remove any line you have not set up yet — GitHub ignores empty values but a
+# wrong handle renders a dead button.
+
+github: [pablogcloud]
+ko_fi: ventusapp

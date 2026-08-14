@@ -203,6 +203,8 @@ struct MainWindowView: View {
                         .font(VentusFont.body(11, weight: .medium))
                         .foregroundStyle(VentusPalette.ink2)
                 }
+            } else {
+                SupportLink()
             }
         }
         .padding(.leading, 78)
@@ -281,5 +283,41 @@ func ventusSensorLabel(_ group: String) -> String {
         return "Board"   // tdev1–8: board/device sensors near the die
     default:
         return group.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+/// Quiet "support development" affordance in the main-window header. Ko-fi is
+/// used because it needs no account from the donor — the app's audience is Mac
+/// users, not developers, and any signup wall kills a voluntary contribution.
+/// Deliberately understated: a heart glyph and a word, no badge, no nagging,
+/// never shown in the menu-bar panel where space is precious.
+struct SupportLink: View {
+    @State private var isHovering = false
+
+    private static let url = URL(string: "https://ko-fi.com/ventusapp")!
+
+    var body: some View {
+        Button {
+            NSWorkspace.shared.open(Self.url)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: isHovering ? "heart.fill" : "heart")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Support")
+                    .font(VentusFont.body(11, weight: .medium))
+            }
+            .foregroundStyle(isHovering ? VentusPalette.accentDeep : VentusPalette.ink3)
+            .padding(.horizontal, 9)
+            .frame(height: 24)
+            .background {
+                Capsule().fill(isHovering ? VentusPalette.accentTint : Color.clear)
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.14), value: isHovering)
+        .help("Support Ventus development on Ko-fi")
+        .accessibilityLabel("Support Ventus development")
     }
 }

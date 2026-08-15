@@ -10,12 +10,25 @@ struct TipJarView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("tipAmount") private var amount: Double = 10
 
-    private static let minAmount: Double = 5
-    private static let maxAmount: Double = 35
-    private static let profileURL = URL(string: "https://ko-fi.com/pablogv")!
-
     private var style: CupStyle { CupStyle.interpolated(for: amount) }
-    private var rounded: Int { Int(amount.rounded()) }
+    private var rounded: Int { KofiLinks.tiers[tierIndex] }
+
+    /// The slider moves between the four tiers rather than over a continuous
+    /// range, because Ko-fi can only be handed a fixed price — see `KofiLinks`.
+    /// A continuous slider would show a number the checkout could not honour.
+    private var tierIndex: Int {
+        let nearest = KofiLinks.tiers.enumerated().min {
+            abs(Double($0.element) - amount) < abs(Double($1.element) - amount)
+        }
+        return nearest?.offset ?? 1
+    }
+
+    private var tierBinding: Binding<Double> {
+        Binding(
+            get: { Double(tierIndex) },
+            set: { amount = Double(KofiLinks.tiers[Int($0.rounded())]) }
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -89,14 +102,18 @@ struct TipJarView: View {
 
     private var slider: some View {
         VStack(spacing: 6) {
-            Slider(value: $amount, in: Self.minAmount ... Self.maxAmount, step: 1)
-                .tint(VentusPalette.accent)
-                .accessibilityLabel("Tip amount in US dollars")
-                .accessibilityValue("\(rounded) dollars — \(style.label)")
+            Slider(
+                value: tierBinding,
+                in: 0 ... Double(KofiLinks.tiers.count - 1),
+                step: 1
+            )
+            .tint(VentusPalette.accent)
+            .accessibilityLabel("Tip amount in US dollars")
+            .accessibilityValue("\(rounded) dollars — \(style.label)")
             HStack {
-                Text("$\(Int(Self.minAmount))")
+                Text("$\(KofiLinks.tiers.first ?? 5)")
                 Spacer()
-                Text("$\(Int(Self.maxAmount))")
+                Text("$\(KofiLinks.tiers.last ?? 35)")
             }
             .font(VentusFont.body(10))
             .foregroundStyle(VentusPalette.ink3)
@@ -107,10 +124,12 @@ struct TipJarView: View {
     private var actions: some View {
         VStack(spacing: 8) {
             Button {
-                NSWorkspace.shared.open(Self.profileURL)
+                NSWorkspace.shared.open(KofiLinks.url(forTier: rounded))
                 dismiss()
             } label: {
-                Text("Tip $\(rounded) on Ko-fi")
+                Text(KofiLinks.hasFixedPrice(rounded)
+                     ? "Tip $\(rounded) on Ko-fi"
+                     : "Open Ko-fi")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(VentusButtonStyle(kind: .primary))
@@ -119,7 +138,9 @@ struct TipJarView: View {
             Button("Maybe later") { dismiss() }
                 .buttonStyle(VentusButtonStyle(kind: .ghost))
 
-            Text("Opens Ko-fi in your browser. No account needed to tip.")
+            Text(KofiLinks.hasFixedPrice(rounded)
+                 ? "Opens Ko-fi in your browser. No account needed to tip."
+                 : "Opens Ko-fi in your browser, where you can pick any amount.")
                 .font(VentusFont.body(10))
                 .foregroundStyle(VentusPalette.ink3)
                 .multilineTextAlignment(.center)

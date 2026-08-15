@@ -256,8 +256,20 @@ struct VentusGlassModifier: ViewModifier {
     }
 }
 
+enum VentusMetrics {
+    /// Corner radius of the menu-bar panel. Shared so the SwiftUI glass shape
+    /// and the AppKit layer clip cannot drift apart — if they disagree, the
+    /// difference shows as a square shoulder at the corners.
+    static let panelCornerRadius: CGFloat = 16
+
+    /// Transparent margin the panel window keeps around its card so a SwiftUI
+    /// shadow has somewhere to fall. The window clips its own contents, so
+    /// without this the shadow would simply be cut off at the window edge.
+    static let panelShadowInset: CGFloat = 18
+}
+
 extension View {
-    func ventusGlass(radius: CGFloat = 16) -> some View {
+    func ventusGlass(radius: CGFloat = VentusMetrics.panelCornerRadius) -> some View {
         modifier(VentusGlassModifier(radius: radius))
     }
 }

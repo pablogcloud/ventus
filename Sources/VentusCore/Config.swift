@@ -208,6 +208,13 @@ public struct Profile: Codable, Equatable {
     /// Hysteresis dwell (seconds) to sustain below threshold before ramping down.
     public let hysteresisDwellS: Double
 
+    /// Highest RPM any fan is asked for at `tempC`. Lets two profiles be
+    /// compared for aggressiveness, so a change that increases cooling can be
+    /// applied at once while one that reduces it is rate-limited.
+    public func peakRPM(atTemp tempC: Double) -> Double {
+        curves.values.map { $0.rpm(atTemp: tempC) }.max() ?? 0
+    }
+
     /// Validates this profile.
     public func validate() throws {
         // Validate profile's own EMA and hysteresis parameters
@@ -239,6 +246,21 @@ public struct FanCurve: Codable, Equatable {
     /// Piecewise linear points: (temperature in °C, target RPM).
     /// Must be sorted by temperature and have monotonically increasing RPM.
     public let points: [CurvePoint]
+
+    /// Piecewise-linear value of this curve at `tempC`, clamped to the end
+    /// points.
+    public func rpm(atTemp tempC: Double) -> Double {
+        guard let first = points.first, let last = points.last else { return 0 }
+        if tempC <= first.temp { return first.rpm }
+        if tempC >= last.temp { return last.rpm }
+        for i in 1 ..< points.count where tempC <= points[i].temp {
+            let a = points[i - 1], b = points[i]
+            let span = b.temp - a.temp
+            guard span > 0 else { return b.rpm }
+            return a.rpm + (b.rpm - a.rpm) * ((tempC - a.temp) / span)
+        }
+        return last.rpm
+    }
 
     /// Validates this curve.
     public func validate() throws {
@@ -311,6 +333,13 @@ public struct PowerPoint: Codable, Equatable, Hashable {
 public struct RulesConfig: Codable, Equatable {
     public var rules: [Rule] = []
 
+    /// GPU watts above which `.gameDetected` considers the machine to be
+    /// gaming. Nil means derive it from the detected chip
+    /// (`ChipInfo.defaultGameGPUWatts`), which is the right default because the
+    /// figure is meaningless without knowing the GPU's size. Optional with a
+    /// default so existing config.json files still decode unchanged.
+    public var gameGPUWattsThreshold: Double? = nil
+
     /// Validates all rules.
     public func validate(knownProfiles: Set<String>) throws {
         for rule in rules {
@@ -330,6 +359,12 @@ public struct Rule: Codable, Equatable {
     /// Profile to activate if this rule matches.
     public let profileName: String
 
+    public init(priority: Int, trigger: RuleTrigger, profileName: String) {
+        self.priority = priority
+        self.trigger = trigger
+        self.profileName = profileName
+    }
+
     /// Validates this rule.
     public func validate(knownProfiles: Set<String>) throws {
         guard knownProfiles.contains(profileName) else {
@@ -347,6 +382,34 @@ public enum RuleTrigger: Codable, Equatable {
     case appRunning(bundleId: String)
     case gameDetected
     case timeWindow(startHour: Int, endHour: Int) // 0-23
+
+    /// True when this trigger depends on facts only the GUI session can supply.
+    /// The daemon declines to match these when the pushed session context is
+    /// stale, so a dead app cannot leave a rule latched on.
+    public var needsSessionContext: Bool {
+        switch self {
+        case .timeWindow:
+            return false
+        case .onBattery, .onAC, .clamshellClosed, .externalDisplayConnected,
+             .appRunning, .gameDetected:
+            return true
+        }
+    }
+
+    /// One description shared by the daemon (for `activeRule` in telemetry) and
+    /// the rule list, so the two can never drift apart.
+    public var displayDescription: String {
+        switch self {
+        case .onBattery:                return "On battery power"
+        case .onAC:                     return "On AC power"
+        case .clamshellClosed:          return "Clamshell closed"
+        case .externalDisplayConnected: return "External display connected"
+        case .appRunning(let bundleID): return "\(bundleID) is running"
+        case .gameDetected:             return "Game detected"
+        case .timeWindow(let start, let end):
+            return String(format: "Between %02d:00 and %02d:00", start, end)
+        }
+    }
 }
 
 /// Engine parameters for the curve engine.

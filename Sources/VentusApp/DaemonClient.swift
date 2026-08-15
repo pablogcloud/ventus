@@ -33,6 +33,9 @@ enum DebugFile {
     func getConfig(reply: @escaping (Data) -> Void)
     func setConfig(_ configData: Data, reply: @escaping (Data) -> Void)
     func setProfile(_ profileName: String, reply: @escaping (Data) -> Void)
+    func setAutoProfile(reply: @escaping (Data) -> Void)
+    func setSessionContext(_ contextData: Data, reply: @escaping (Data) -> Void)
+    func setRules(_ rulesData: Data, reply: @escaping (Data) -> Void)
     func arm(reply: @escaping (Data) -> Void)
     func disarm(reply: @escaping (Data) -> Void)
     func setAppleAuto(reply: @escaping (Data) -> Void)
@@ -103,9 +106,47 @@ final class DaemonClientObserver: NSObject, ObservableObject {
         }
         guard let client else { appLog.log("setProfile: no client"); return false }
         let ok = await client.setProfile(profileName)
+        // Keep the local snapshot honest: anything reading config.pinnedProfile
+        // (the Auto card, the curves editor) would otherwise still believe the
+        // pre-click state for the rest of the session.
+        if ok { config?.pinnedProfile = profileName }
         if let snap = await client.getStatus() { updateStatus(snap) }   // apply synchronously (monotonic) so observer.status is current before we return
         appLog.log("observer.setProfile result=\(ok)")
         return ok
+    }
+
+    /// Hands profile selection back to the rules.
+    func setAutoProfile() async -> Bool {
+        DebugFile.write("setAutoProfile called")
+        guard status?.isFanControlAvailable ?? true else {
+            appLog.log("setAutoProfile blocked: fanControl unavailable"); return false
+        }
+        guard let client else { appLog.log("setAutoProfile: no client"); return false }
+        let ok = await client.setAutoProfile()
+        if ok { config?.pinnedProfile = nil }
+        if let snap = await client.getStatus() { updateStatus(snap) }
+        appLog.log("observer.setAutoProfile result=\(ok)")
+        return ok
+    }
+
+    /// Writes just the rules. Narrow on purpose — see `setRules` in the XPC
+    /// protocol for why a whole-config write is unsafe from this client.
+    func setRules(_ rules: RulesConfig) async -> Bool {
+        guard let client else { return false }
+        let ok = await client.setRules(rules)
+        if ok {
+            config?.rules = rules
+            if let snap = await client.getStatus() { updateStatus(snap) }
+        }
+        return ok
+    }
+
+    /// Fire-and-forget: a dropped context push just ages out, and the daemon
+    /// already treats a stale context as "don't trust session triggers". No
+    /// status refetch — this runs every few seconds and the 2s poll covers it.
+    func pushSessionContext(_ context: SessionContext) async {
+        guard let client else { return }
+        _ = await client.setSessionContext(context)
     }
 
     func arm() async -> Bool {
@@ -329,6 +370,20 @@ actor DaemonClient {
 
     func setProfile(_ profileName: String) async -> Bool {
         await controlCall { proxy, reply in proxy.setProfile(profileName, reply: reply) }
+    }
+
+    func setAutoProfile() async -> Bool {
+        await controlCall { proxy, reply in proxy.setAutoProfile(reply: reply) }
+    }
+
+    func setSessionContext(_ context: SessionContext) async -> Bool {
+        guard let data = try? JSONEncoder().encode(context) else { return false }
+        return await controlCall { proxy, reply in proxy.setSessionContext(data, reply: reply) }
+    }
+
+    func setRules(_ rules: RulesConfig) async -> Bool {
+        guard let data = try? JSONEncoder().encode(rules) else { return false }
+        return await controlCall { proxy, reply in proxy.setRules(data, reply: reply) }
     }
 
     func arm() async -> Bool {

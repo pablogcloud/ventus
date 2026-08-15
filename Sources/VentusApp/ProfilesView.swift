@@ -49,6 +49,14 @@ struct ProfilesTabView: View {
                 }
             }
 
+            AutoCard(
+                isActive: config.pinnedProfile == nil,
+                activeRule: observer.status?.activeRule,
+                resolvedProfile: observer.status?.activeProfile,
+                isApplying: applyingProfile == Self.autoToken,
+                action: activateAuto
+            )
+
             LazyVGrid(columns: columns, spacing: 14) {
                 ForEach(config.profiles.keys.sorted(by: profileOrder), id: \.self) { name in
                     if let profile = config.profiles[name] {
@@ -63,32 +71,7 @@ struct ProfilesTabView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 12) {
-                VentusSectionHeader(
-                    title: "Rules",
-                    detail: "\(config.rules.rules.count) configured"
-                )
-
-                if config.rules.rules.isEmpty {
-                    Text("No automatic profile rules are configured.")
-                        .font(VentusFont.body(12))
-                        .foregroundStyle(VentusPalette.ink3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(14)
-                        .background {
-                            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                .fill(VentusPalette.lift)
-                        }
-                } else {
-                    ForEach(
-                        config.rules.rules.sorted { $0.priority > $1.priority },
-                        id: \.priority
-                    ) { rule in
-                        RuleCard(rule: rule)
-                    }
-                }
-            }
-            .ventusCard()
+            RulesEditor(config: config, observer: observer)
         }
     }
 
@@ -115,6 +98,24 @@ struct ProfilesTabView: View {
         }
     }
 
+    /// Sentinel for the Auto card's spinner — it is not a profile name, so it
+    /// can never collide with one.
+    fileprivate static let autoToken = "\u{0}auto"
+
+    private func activateAuto() {
+        applyingProfile = Self.autoToken
+        feedback = nil
+        Task {
+            if await observer.setAutoProfile() {
+                // The daemon decides what runs now; reflect whatever it picked.
+                syncSelection()
+            } else {
+                feedback = "The daemon could not switch to automatic."
+            }
+            applyingProfile = nil
+        }
+    }
+
     private func activateProfile(_ name: String) {
         applyingProfile = name
         feedback = nil
@@ -133,6 +134,77 @@ struct ProfilesTabView: View {
         let order = ["quiet", "balanced", "performance", "auto-apple"]
         return (order.firstIndex(of: left) ?? order.count)
             < (order.firstIndex(of: right) ?? order.count)
+    }
+}
+
+/// Hands profile choice back to the rules. Sits above the profile grid because
+/// it is the default state, not an extra mode: picking a profile below is what
+/// suspends it.
+private struct AutoCard: View {
+    let isActive: Bool
+    let activeRule: String?
+    let resolvedProfile: String?
+    let isApplying: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isActive ? VentusPalette.accent : VentusPalette.ink3)
+                    .frame(width: 34, height: 34)
+                    .background {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(isActive ? VentusPalette.accentTint : VentusPalette.lift)
+                    }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Automatic")
+                        .font(VentusFont.body(13, weight: .semibold))
+                        .foregroundStyle(VentusPalette.ink)
+                    Text(subtitle)
+                        .font(VentusFont.body(11))
+                        .foregroundStyle(VentusPalette.ink2)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                if isApplying {
+                    ProgressView().controlSize(.small).tint(VentusPalette.accent)
+                } else if isActive {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(VentusPalette.accent)
+                }
+            }
+            .padding(13)
+            .frame(maxWidth: .infinity)
+            .background {
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    .fill(isActive ? VentusPalette.accentTint.opacity(0.5) : VentusPalette.surface2.opacity(0.72))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 15, style: .continuous)
+                            .strokeBorder(
+                                isActive ? VentusPalette.accent.opacity(0.5) : .clear,
+                                lineWidth: 1
+                            )
+                    }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var subtitle: String {
+        guard isActive else { return "Let rules choose the profile" }
+        if let activeRule, let resolvedProfile {
+            return "\(activeRule) → \(ventusProfileTitle(resolvedProfile))"
+        }
+        if let resolvedProfile {
+            return "No rule matches — using \(ventusProfileTitle(resolvedProfile))"
+        }
+        return "Rules choose the profile"
     }
 }
 
@@ -250,87 +322,6 @@ private struct ProfileMetric: View {
         .background {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(VentusPalette.lift)
-        }
-    }
-}
-
-private struct RuleCard: View {
-    let rule: Rule
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: triggerIcon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(VentusPalette.accent)
-                .frame(width: 32, height: 32)
-                .background {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(VentusPalette.accentTint)
-                }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(triggerDescription)
-                    .font(VentusFont.body(12, weight: .semibold))
-                    .foregroundStyle(VentusPalette.ink)
-                Text("Priority \(rule.priority)")
-                    .font(VentusFont.body(10))
-                    .foregroundStyle(VentusPalette.ink3)
-            }
-
-            Spacer()
-
-            Text(ventusProfileTitle(rule.profileName))
-                .font(VentusFont.body(11, weight: .semibold))
-                .foregroundStyle(VentusPalette.accentDeep)
-                .padding(.horizontal, 9)
-                .frame(height: 24)
-                .background {
-                    Capsule()
-                        .fill(VentusPalette.accentTint)
-                }
-        }
-        .padding(12)
-        .background {
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(VentusPalette.surface2.opacity(0.72))
-        }
-    }
-
-    private var triggerDescription: String {
-        switch rule.trigger {
-        case .onBattery:
-            return "When on battery power"
-        case .onAC:
-            return "When on AC power"
-        case .clamshellClosed:
-            return "When clamshell is closed"
-        case .externalDisplayConnected:
-            return "When an external display is connected"
-        case .appRunning(let bundleID):
-            return "When \(bundleID) is running"
-        case .gameDetected:
-            return "When a game is detected"
-        case .timeWindow(let start, let end):
-            return "Time window: \(start):00-\(end):00"
-        }
-    }
-
-    private var triggerIcon: String {
-        switch rule.trigger {
-        case .onBattery:
-            return "battery.50percent"
-        case .onAC:
-            return "powerplug.fill"
-        case .clamshellClosed:
-            return "macbook"
-        case .externalDisplayConnected:
-            return "display"
-        case .appRunning:
-            return "app.fill"
-        case .gameDetected:
-            return "gamecontroller.fill"
-        case .timeWindow:
-            return "clock.fill"
         }
     }
 }

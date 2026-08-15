@@ -1,4 +1,5 @@
 import SwiftUI
+import VentusCore
 
 struct DashboardTabView: View {
     @ObservedObject var observer: DaemonClientObserver

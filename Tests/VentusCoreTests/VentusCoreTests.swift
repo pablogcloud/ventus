@@ -774,6 +774,30 @@ final class VentusCoreTests: XCTestCase {
         XCTAssertEqual(active, "performance")
     }
 
+    // MARK: - Rule Engine: time windows
+
+    /// Builds a context whose clock reads exactly `hour` local time.
+    private func contextAt(hour: Int, onBattery: Bool = false) -> RuleEngine.RuleContext {
+        var components = DateComponents()
+        components.year = 2026; components.month = 6; components.day = 15
+        components.hour = hour; components.minute = 30
+        let date = Calendar.current.date(from: components)!
+        return RuleEngine.RuleContext(
+            onBattery: onBattery,
+            clamshellClosed: false,
+            externalDisplayConnected: false,
+            runningBundleIDs: [],
+            frontmostBundleID: nil,
+            frontmostIsFullscreen: false,
+            gpuPowerW: nil,
+            localTime: date
+        )
+    }
+
+    /// The previous version of this test passed `Date()` and asserted the result
+    /// was one of the only two profiles that could ever be returned — it could
+    /// not fail, and passed even if the wrap logic were inverted. These assert
+    /// both sides of the boundary against a fixed clock.
     func testRuleEngine_WrappingTimeWindow() {
         let engine = RuleEngine()
         var rulesConfig = RulesConfig()
@@ -781,28 +805,417 @@ final class VentusCoreTests: XCTestCase {
             Rule(priority: 100, trigger: .timeWindow(startHour: 22, endHour: 7), profileName: "quiet"),
             Rule(priority: 50, trigger: .onAC, profileName: "balanced"),
         ]
+        let known = Set(["quiet", "balanced", "performance"])
 
-        let context = RuleEngine.RuleContext(
-            onBattery: false,
-            clamshellClosed: false,
-            externalDisplayConnected: false,
-            runningBundleIDs: [],
-            frontmostBundleID: nil,
-            frontmostIsFullscreen: false,
-            gpuPowerW: nil,
-            localTime: Date(timeIntervalSinceNow: 0)  // Use current time; hour extraction happens at runtime
+        func active(at hour: Int) -> String {
+            engine.evaluateRules(
+                rulesConfig: rulesConfig, context: contextAt(hour: hour),
+                manualPin: nil, knownProfiles: known
+            )
+        }
+
+        // Inside the window, both sides of midnight.
+        XCTAssertEqual(active(at: 22), "quiet")
+        XCTAssertEqual(active(at: 23), "quiet")
+        XCTAssertEqual(active(at: 0), "quiet")
+        XCTAssertEqual(active(at: 6), "quiet")
+        // Outside it — these are what an inverted implementation would break.
+        XCTAssertEqual(active(at: 7), "balanced")   // end hour is exclusive
+        XCTAssertEqual(active(at: 12), "balanced")
+        XCTAssertEqual(active(at: 21), "balanced")  // start hour not yet reached
+    }
+
+    func testRuleEngine_NonWrappingTimeWindow() {
+        let engine = RuleEngine()
+        var rulesConfig = RulesConfig()
+        rulesConfig.rules = [
+            Rule(priority: 100, trigger: .timeWindow(startHour: 9, endHour: 17), profileName: "performance"),
+        ]
+        let known = Set(["quiet", "balanced", "performance"])
+
+        func active(at hour: Int) -> String {
+            engine.evaluateRules(
+                rulesConfig: rulesConfig, context: contextAt(hour: hour),
+                manualPin: nil, knownProfiles: known
+            )
+        }
+
+        XCTAssertEqual(active(at: 8), "balanced")     // fallback, no rule matches
+        XCTAssertEqual(active(at: 9), "performance")  // start inclusive
+        XCTAssertEqual(active(at: 16), "performance")
+        XCTAssertEqual(active(at: 17), "balanced")    // end exclusive
+    }
+
+    // MARK: - Rule Engine: resolve() — pin, staleness, fallback
+
+    private func resolveConfig(rules: [Rule], pinned: String? = nil) -> Config {
+        var config = Config.defaultConfig()
+        config.rules.rules = rules
+        config.pinnedProfile = pinned
+        return config
+    }
+
+    private var freshSession: SessionContext {
+        SessionContext(
+            onBattery: true,
+            runningBundleIDs: ["com.apple.dt.Xcode"],
+            frontmostBundleID: "com.apple.dt.Xcode",
+            frontmostIsFullscreen: true
         )
+    }
 
-        let knownProfiles = Set(["quiet", "balanced", "performance"])
+    func testResolve_ManualPinSuspendsRules() {
+        let engine = RuleEngine()
+        let config = resolveConfig(
+            rules: [Rule(priority: 100, trigger: .onBattery, profileName: "quiet")],
+            pinned: "performance"
+        )
+        let r = engine.resolve(
+            config: config, session: freshSession, sessionAgeS: 0,
+            gpuWatts: nil, now: Date()
+        )
+        XCTAssertEqual(r.profileName, "performance")
+        XCTAssertTrue(r.isPinned)
+        XCTAssertNil(r.ruleLabel)
+    }
+
+    func testResolve_FreshSessionMatchesRuleAndLabelsIt() {
+        let engine = RuleEngine()
+        let config = resolveConfig(
+            rules: [Rule(priority: 100, trigger: .onBattery, profileName: "quiet")]
+        )
+        let r = engine.resolve(
+            config: config, session: freshSession, sessionAgeS: 5,
+            gpuWatts: nil, now: Date()
+        )
+        XCTAssertEqual(r.profileName, "quiet")
+        XCTAssertFalse(r.isPinned)
+        XCTAssertEqual(r.ruleLabel, "On battery power")
+    }
+
+    /// The safety property: if VentusApp dies, its last known session facts must
+    /// stop counting rather than latching a rule on forever.
+    func testResolve_StaleSessionDisablesSessionTriggers() {
+        let engine = RuleEngine()
+        let config = resolveConfig(
+            rules: [Rule(priority: 100, trigger: .onBattery, profileName: "quiet")]
+        )
+        let r = engine.resolve(
+            config: config, session: freshSession,
+            sessionAgeS: RuleEngine.maxSessionAgeS + 1,
+            gpuWatts: nil, now: Date()
+        )
+        XCTAssertEqual(r.profileName, "balanced")
+        XCTAssertNil(r.ruleLabel)
+    }
+
+    /// ...but the clock is still trustworthy without the app, so time rules run.
+    func testResolve_StaleSessionStillHonoursTimeWindow() {
+        let engine = RuleEngine()
+        let config = resolveConfig(rules: [
+            Rule(priority: 100, trigger: .onBattery, profileName: "performance"),
+            Rule(priority: 50, trigger: .timeWindow(startHour: 0, endHour: 24), profileName: "quiet"),
+        ])
+        let r = engine.resolve(
+            config: config, session: freshSession,
+            sessionAgeS: RuleEngine.maxSessionAgeS + 1,
+            gpuWatts: nil, now: Date()
+        )
+        XCTAssertEqual(r.profileName, "quiet")
+        XCTAssertEqual(r.ruleLabel, "Between 00:00 and 24:00")
+    }
+
+    func testResolve_NeverReceivedSessionIsTreatedAsStale() {
+        let engine = RuleEngine()
+        let config = resolveConfig(
+            rules: [Rule(priority: 100, trigger: .onAC, profileName: "performance")]
+        )
+        let r = engine.resolve(
+            config: config, session: nil, sessionAgeS: nil,
+            gpuWatts: nil, now: Date()
+        )
+        XCTAssertEqual(r.profileName, "balanced")
+    }
+
+    func testResolve_EmptyRulesFallsBackToBalanced() {
+        let engine = RuleEngine()
+        let r = engine.resolve(
+            config: resolveConfig(rules: []), session: freshSession,
+            sessionAgeS: 0, gpuWatts: nil, now: Date()
+        )
+        XCTAssertEqual(r.profileName, "balanced")
+        XCTAssertFalse(r.isPinned)
+    }
+
+    /// A pin naming a deleted profile must not strand the machine — rules take
+    /// over rather than the daemon holding an unresolvable name.
+    func testResolve_UnknownPinFallsThroughToRules() {
+        let engine = RuleEngine()
+        let config = resolveConfig(
+            rules: [Rule(priority: 100, trigger: .onBattery, profileName: "quiet")],
+            pinned: "deleted-profile"
+        )
+        let r = engine.resolve(
+            config: config, session: freshSession, sessionAgeS: 0,
+            gpuWatts: nil, now: Date()
+        )
+        XCTAssertEqual(r.profileName, "quiet")
+        XCTAssertFalse(r.isPinned)
+    }
+
+    /// A rule pointing at a profile that no longer exists is skipped, not
+    /// returned — returning it would make the control loop unable to find a
+    /// curve and disarm itself.
+    func testResolve_RuleNamingMissingProfileIsSkipped() {
+        let engine = RuleEngine()
+        let config = resolveConfig(rules: [
+            Rule(priority: 100, trigger: .onBattery, profileName: "gone"),
+            Rule(priority: 50, trigger: .onBattery, profileName: "quiet"),
+        ])
+        let r = engine.resolve(
+            config: config, session: freshSession, sessionAgeS: 0,
+            gpuWatts: nil, now: Date()
+        )
+        XCTAssertEqual(r.profileName, "quiet")
+    }
+
+    // MARK: - Rule transition damper
+
+    private func res(_ name: String, rule: String? = "r", pinned: Bool = false)
+        -> RuleEngine.Resolution
+    {
+        RuleEngine.Resolution(profileName: name, ruleLabel: rule, isPinned: pinned)
+    }
+
+    func testDamper_FirstResolutionAppliesImmediately() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        XCTAssertEqual(damper.settle(res("quiet"), nowUptime: 100).profileName, "quiet")
+        XCTAssertEqual(damper.current?.profileName, "quiet")
+    }
+
+    /// The defect this exists for: a rule sitting on its threshold flips every
+    /// tick, and each flip swaps the whole curve.
+    func testDamper_HoldsAChangeUntilItHasPersisted() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("balanced"), nowUptime: 0)
+
+        // The dwell runs from when the new answer FIRST appeared (t=1), not from
+        // the previous change, so it lands at t=13.
+        XCTAssertEqual(damper.settle(res("performance"), nowUptime: 1).profileName, "balanced")
+        XCTAssertEqual(damper.settle(res("performance"), nowUptime: 6).profileName, "balanced")
+        XCTAssertEqual(damper.settle(res("performance"), nowUptime: 12.9).profileName, "balanced")
+        XCTAssertEqual(damper.settle(res("performance"), nowUptime: 13).profileName, "performance")
+    }
+
+    /// Flapping must not accumulate toward the dwell: each time the answer
+    /// changes, the clock restarts, so noise never crosses the threshold.
+    func testDamper_FlappingNeverApplies() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("balanced"), nowUptime: 0)
+
+        var t = 1.0
+        for _ in 0 ..< 40 {
+            XCTAssertEqual(damper.settle(res("performance"), nowUptime: t).profileName, "balanced")
+            t += 1
+            XCTAssertEqual(damper.settle(res("balanced"), nowUptime: t).profileName, "balanced")
+            t += 1
+        }
+        XCTAssertEqual(damper.current?.profileName, "balanced")
+    }
+
+    /// Clicking a profile, or Auto, must take effect at once — waiting out a
+    /// dwell after a click reads as the app ignoring you.
+    func testDamper_PinAndUnpinBypassDwell() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("balanced"), nowUptime: 0)
+
+        let pinned = damper.settle(res("quiet", rule: nil, pinned: true), nowUptime: 0.1)
+        XCTAssertEqual(pinned.profileName, "quiet")
+        XCTAssertTrue(pinned.isPinned)
+
+        // Releasing to Auto is equally immediate, even though it is a
+        // rule-derived answer arriving right after.
+        let auto = damper.settle(res("performance"), nowUptime: 0.2)
+        XCTAssertEqual(auto.profileName, "performance")
+        XCTAssertFalse(auto.isPinned)
+    }
+
+    /// The reason can change without the profile changing — a different rule
+    /// winning with the same target. Nothing actuates, so it passes straight
+    /// through rather than being rate-limited.
+    func testDamper_LabelChangeOnSameProfileIsImmediate() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("quiet", rule: "On battery power"), nowUptime: 0)
+        let next = damper.settle(res("quiet", rule: "Between 22:00 and 07:00"), nowUptime: 1)
+        XCTAssertEqual(next.ruleLabel, "Between 22:00 and 07:00")
+        XCTAssertEqual(next.profileName, "quiet")
+    }
+
+    /// A dry run must be able to read the decision without consuming the dwell
+    /// the live loop is waiting on.
+    func testDamper_CurrentDoesNotAdvanceState() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("balanced"), nowUptime: 0)
+        _ = damper.settle(res("performance"), nowUptime: 1)
+
+        XCTAssertEqual(damper.current?.profileName, "balanced")
+        XCTAssertEqual(damper.current?.profileName, "balanced")
+        // The pending change still lands on its original schedule.
+        XCTAssertEqual(damper.settle(res("performance"), nowUptime: 13).profileName, "performance")
+    }
+
+    // MARK: - Audit regressions
+
+    /// Config.validate only requires "balanced" when nothing is pinned, so a
+    /// config that was valid while pinned elsewhere can lose it. Naming a
+    /// missing profile would make the armed control loop restore-and-disarm.
+    func testResolve_FallsBackToARealProfileWhenBalancedIsGone() {
+        let engine = RuleEngine()
+        var config = Config.defaultConfig()
+        config.profiles.removeValue(forKey: "balanced")
+        config.rules.rules = []
+        config.pinnedProfile = nil
+
+        let r = engine.resolve(
+            config: config, session: nil, sessionAgeS: nil, gpuWatts: nil, now: Date()
+        )
+        XCTAssertNotEqual(r.profileName, "balanced")
+        XCTAssertNotNil(config.profiles[r.profileName], "fallback must name a profile that exists")
+    }
+
+    /// evaluateRules had no such skip, so reusing it would resurrect the bug
+    /// resolve() guards against.
+    func testEvaluateRules_SkipsRulesNamingMissingProfiles() {
+        let engine = RuleEngine()
+        var rulesConfig = RulesConfig()
+        rulesConfig.rules = [
+            Rule(priority: 100, trigger: .onBattery, profileName: "deleted"),
+            Rule(priority: 50, trigger: .onBattery, profileName: "quiet"),
+        ]
         let active = engine.evaluateRules(
             rulesConfig: rulesConfig,
-            context: context,
+            context: contextAt(hour: 12, onBattery: true),
             manualPin: nil,
-            knownProfiles: knownProfiles
+            knownProfiles: Set(["quiet", "balanced"])
         )
+        XCTAssertEqual(active, "quiet")
+    }
 
-        // Will return either "quiet" or "balanced" depending on current hour - just verify it completes
-        XCTAssert(active == "quiet" || active == "balanced")
+    /// A change that increases cooling must not wait out the dwell: the machine
+    /// has just started a game and the quiet curve is the wrong table to sit on.
+    func testDamper_MoreCoolingSkipsTheDwell() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("quiet"), nowUptime: 0)
+
+        let up = damper.settle(res("performance"), nowUptime: 1, coolingDelta: 900)
+        XCTAssertEqual(up.profileName, "performance")
+    }
+
+    /// ...and a reduction still waits, which is the whole point.
+    func testDamper_LessCoolingStillWaits() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("performance"), nowUptime: 0)
+
+        XCTAssertEqual(
+            damper.settle(res("quiet"), nowUptime: 1, coolingDelta: -900).profileName,
+            "performance"
+        )
+        XCTAssertEqual(
+            damper.settle(res("quiet"), nowUptime: 13, coolingDelta: -900).profileName,
+            "quiet"
+        )
+    }
+
+    /// An unknown direction is treated as a reduction — the conservative read,
+    /// because it keeps the rate limit on rather than assuming it is safe.
+    func testDamper_UnknownCoolingDeltaIsRateLimited() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("quiet"), nowUptime: 0)
+        XCTAssertEqual(
+            damper.settle(res("performance"), nowUptime: 1, coolingDelta: nil).profileName,
+            "quiet"
+        )
+    }
+
+    func testCurve_InterpolatesAndClampsAtTheEnds() {
+        let curve = FanCurve(
+            inputMix: [.cpuPerf: 1.0],
+            points: [
+                CurvePoint(temp: 40, rpm: 1000),
+                CurvePoint(temp: 60, rpm: 2000),
+                CurvePoint(temp: 80, rpm: 4000),
+            ]
+        )
+        XCTAssertEqual(curve.rpm(atTemp: 20), 1000)     // clamped low
+        XCTAssertEqual(curve.rpm(atTemp: 40), 1000)
+        XCTAssertEqual(curve.rpm(atTemp: 50), 1500)     // midpoint
+        XCTAssertEqual(curve.rpm(atTemp: 70), 3000)
+        XCTAssertEqual(curve.rpm(atTemp: 999), 4000)    // clamped high
+    }
+
+    /// The comparison the damper relies on: Performance must ask for more than
+    /// Quiet at a temperature where the two differ.
+    func testProfile_PeakRPMOrdersTheShippedProfiles() {
+        let config = Config.defaultConfig()
+        guard let quiet = config.profiles["quiet"],
+              let performance = config.profiles["performance"] else {
+            return XCTFail("default config should ship both profiles")
+        }
+        XCTAssertGreaterThan(
+            performance.peakRPM(atTemp: 70), quiet.peakRPM(atTemp: 70)
+        )
+    }
+
+    // MARK: - Rule Engine: game threshold scaling
+
+    func testGameThreshold_ScalesWithGPUCores() {
+        // A big GPU must demand more watts than a small one before the same
+        // rule fires; the old fixed 50 W was near an M2 Max's peak and so could
+        // never trigger on a base chip.
+        let big = ChipInfo(name: "Apple M2 Max", pCores: 8, eCores: 4, gpuCores: 38)
+        let small = ChipInfo(name: "Apple M3", pCores: 4, eCores: 4, gpuCores: 10)
+        XCTAssertGreaterThan(big.defaultGameGPUWatts, small.defaultGameGPUWatts)
+        XCTAssertEqual(big.defaultGameGPUWatts, 34.2, accuracy: 0.01)
+        XCTAssertEqual(small.defaultGameGPUWatts, 9.0, accuracy: 0.01)
+        // Never so low that idle desktop work would cross it.
+        XCTAssertGreaterThanOrEqual(
+            ChipInfo(name: "tiny", pCores: 2, eCores: 2, gpuCores: 1).defaultGameGPUWatts, 6
+        )
+    }
+
+    func testGameDetection_RespectsConfiguredThreshold() {
+        let engine = RuleEngine()
+        var config = resolveConfig(
+            rules: [Rule(priority: 100, trigger: .gameDetected, profileName: "performance")]
+        )
+        config.rules.gameGPUWattsThreshold = 30
+
+        let gaming = SessionContext(frontmostBundleID: "com.game", frontmostIsFullscreen: true)
+
+        XCTAssertEqual(
+            engine.resolve(config: config, session: gaming, sessionAgeS: 0,
+                           gpuWatts: 45, now: Date()).profileName,
+            "performance"
+        )
+        // Just under the threshold: fullscreen alone must not count.
+        XCTAssertEqual(
+            engine.resolve(config: config, session: gaming, sessionAgeS: 0,
+                           gpuWatts: 20, now: Date()).profileName,
+            "balanced"
+        )
+        // Windowed at high power is not a game either.
+        let windowed = SessionContext(frontmostBundleID: "com.render", frontmostIsFullscreen: false)
+        XCTAssertEqual(
+            engine.resolve(config: config, session: windowed, sessionAgeS: 0,
+                           gpuWatts: 90, now: Date()).profileName,
+            "balanced"
+        )
+        // Missing GPU reading must not be read as zero-or-anything.
+        XCTAssertEqual(
+            engine.resolve(config: config, session: gaming, sessionAgeS: 0,
+                           gpuWatts: nil, now: Date()).profileName,
+            "balanced"
+        )
     }
 
     // MARK: - Curve Validation (4 tests)

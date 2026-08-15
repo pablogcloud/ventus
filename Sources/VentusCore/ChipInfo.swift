@@ -3,13 +3,28 @@ import IOKit
 
 /// The physical chip this Mac runs on — the die schematic draws itself from
 /// these counts, so an M4 Pro shows its own core layout, not a generic one.
-struct ChipInfo {
-    let name: String        // e.g. "Apple M2 Max"
-    let pCores: Int
-    let eCores: Int
-    let gpuCores: Int
+///
+/// Lives in VentusCore rather than the app because the daemon needs `gpuCores`
+/// to scale the game-detection power threshold to this machine.
+public struct ChipInfo: Sendable {
+    public let name: String        // e.g. "Apple M2 Max"
+    public let pCores: Int
+    public let eCores: Int
+    public let gpuCores: Int
 
-    static let current = detect()
+    public static let current = detect()
+
+    /// GPU power that means "something is really using the GPU", scaled to this
+    /// chip. Apple Silicon GPUs draw roughly 1.2–1.5 W per core flat out, so
+    /// this sits at about two thirds of peak: high enough to exclude ordinary
+    /// desktop work, low enough that a real game reliably crosses it.
+    ///
+    /// The previous hardcoded 50 W was near an M2 Max's *peak*, which meant the
+    /// rule could never fire on a smaller chip — a base M3 tops out well below
+    /// it.
+    public var defaultGameGPUWatts: Double {
+        max(6, Double(gpuCores) * 0.9)
+    }
 
     private static func detect() -> ChipInfo {
         let name = sysctlString("machdep.cpu.brand_string") ?? "Apple Silicon"

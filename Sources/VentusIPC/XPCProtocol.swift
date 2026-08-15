@@ -14,8 +14,23 @@ import Foundation
     /// reply: (Data) -> Void receives validation result (error message or empty if ok)
     func setConfig(_ configData: Data, reply: @escaping (Data) -> Void)
 
-    /// Sets the active profile by name.
+    /// Sets the active profile by name. This is a MANUAL pin: it suspends rule
+    /// evaluation until `setAutoProfile` releases it.
     func setProfile(_ profileName: String, reply: @escaping (Data) -> Void)
+
+    /// Clears the manual pin, handing profile selection back to the rules.
+    ///
+    /// A dedicated method rather than a whole-config write: `setConfig` is
+    /// read-modify-write with no revision token, and clients never re-fetch
+    /// config after connecting, so using it here would risk clobbering
+    /// concurrent changes with a stale copy.
+    func setAutoProfile(reply: @escaping (Data) -> Void)
+
+    /// Pushes facts about the GUI session that the daemon cannot observe
+    /// itself — running apps, frontmost app, fullscreen, displays, power
+    /// source. JSON-encoded `SessionContext`. The daemon timestamps each one
+    /// and stops trusting session-dependent triggers once it goes stale.
+    func setSessionContext(_ contextData: Data, reply: @escaping (Data) -> Void)
 
     /// Enables armed mode (hardware writes allowed).
     func arm(reply: @escaping (Data) -> Void)

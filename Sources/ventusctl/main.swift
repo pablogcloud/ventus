@@ -15,6 +15,8 @@ let EXIT_DAEMON_ERROR = 4
     func getConfig(reply: @escaping (Data) -> Void)
     func setConfig(_ configData: Data, reply: @escaping (Data) -> Void)
     func setProfile(_ profileName: String, reply: @escaping (Data) -> Void)
+    func setAutoProfile(reply: @escaping (Data) -> Void)
+    func setSessionContext(_ contextData: Data, reply: @escaping (Data) -> Void)
     func arm(reply: @escaping (Data) -> Void)
     func disarm(reply: @escaping (Data) -> Void)
     func setAppleAuto(reply: @escaping (Data) -> Void)
@@ -151,6 +153,16 @@ class XPCClient {
                     semaphore.signal()
                 }
             }
+        case "setAutoProfile":
+            proxy.setAutoProfile { data in
+                do {
+                    let decoded = try JSONDecoder().decode(T.self, from: data)
+                    result = .success(decoded)
+                } catch {
+                    result = .failure(.decodingFailed(error))
+                }
+                semaphore.signal()
+            }
         case "arm":
             proxy.arm { data in
                 do {
@@ -237,7 +249,8 @@ func printUsage() {
     Usage:
       ventusctl status [--json]         Print current fan status
       ventusctl watch [-i SECONDS]      Watch status updates (default 2s)
-      ventusctl profile NAME [--pin]    Set active profile
+      ventusctl profile NAME [--pin]    Set active profile (suspends rules)
+      ventusctl auto                    Clear the pin; let rules choose
       ventusctl arm                     Enable hardware control (WARNING)
       ventusctl disarm                  Disable hardware control
       ventusctl set-auto                Release to macOS auto mode
@@ -423,6 +436,27 @@ func commandProfile(args: [String]) -> Int32 {
     }
 }
 
+/// Releases the manual pin so the rule engine selects the profile again.
+func commandAuto() -> Int32 {
+    guard let client = XPCClient() else {
+        fputs("daemon not running — install with sudo scripts/install.sh\n", stderr)
+        return Int32(EXIT_DAEMON_UNREACHABLE)
+    }
+
+    switch client.callXPC(method: "setAutoProfile", responseType: XPCResult.self) {
+    case .success(let result):
+        if result.success {
+            print("Auto. Rules now select the profile.")
+            return 0
+        }
+        fputs("\(result.error ?? "unknown error")\n", stderr)
+        return Int32(EXIT_DAEMON_ERROR)
+    case .failure(let error):
+        fputs("\(error)\n", stderr)
+        return Int32(EXIT_DAEMON_ERROR)
+    }
+}
+
 func commandArm() -> Int32 {
     guard let client = XPCClient() else {
         fputs("daemon not running — install with sudo scripts/install.sh\n", stderr)
@@ -585,6 +619,8 @@ case "watch":
     exitCode = Int32(commandWatch(args: args))
 case "profile":
     exitCode = Int32(commandProfile(args: args))
+case "auto":
+    exitCode = Int32(commandAuto())
 case "arm":
     exitCode = Int32(commandArm())
 case "disarm":

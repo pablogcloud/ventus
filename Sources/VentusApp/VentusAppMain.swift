@@ -40,6 +40,7 @@ private final class KeyablePanel: NSPanel {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let daemonClient = DaemonClientObserver()
+    private lazy var sessionContext = SessionContextProvider(observer: daemonClient)
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
     private var clickMonitor: Any?
@@ -73,6 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.action = #selector(togglePanel(_:))
         }
         self.statusItem = item
+
+        // Rules need GUI-session facts the root daemon cannot observe; this
+        // starts reporting them. Everything else about rules happens daemon-side.
+        sessionContext.start()
 
         #if DEBUG
         // Debug hook (DEBUG builds only — compiled out of release entirely):

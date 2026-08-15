@@ -33,6 +33,8 @@ enum DebugFile {
     func getConfig(reply: @escaping (Data) -> Void)
     func setConfig(_ configData: Data, reply: @escaping (Data) -> Void)
     func setProfile(_ profileName: String, reply: @escaping (Data) -> Void)
+    func setAutoProfile(reply: @escaping (Data) -> Void)
+    func setSessionContext(_ contextData: Data, reply: @escaping (Data) -> Void)
     func arm(reply: @escaping (Data) -> Void)
     func disarm(reply: @escaping (Data) -> Void)
     func setAppleAuto(reply: @escaping (Data) -> Void)
@@ -106,6 +108,27 @@ final class DaemonClientObserver: NSObject, ObservableObject {
         if let snap = await client.getStatus() { updateStatus(snap) }   // apply synchronously (monotonic) so observer.status is current before we return
         appLog.log("observer.setProfile result=\(ok)")
         return ok
+    }
+
+    /// Hands profile selection back to the rules.
+    func setAutoProfile() async -> Bool {
+        DebugFile.write("setAutoProfile called")
+        guard status?.isFanControlAvailable ?? true else {
+            appLog.log("setAutoProfile blocked: fanControl unavailable"); return false
+        }
+        guard let client else { appLog.log("setAutoProfile: no client"); return false }
+        let ok = await client.setAutoProfile()
+        if let snap = await client.getStatus() { updateStatus(snap) }
+        appLog.log("observer.setAutoProfile result=\(ok)")
+        return ok
+    }
+
+    /// Fire-and-forget: a dropped context push just ages out, and the daemon
+    /// already treats a stale context as "don't trust session triggers". No
+    /// status refetch — this runs every few seconds and the 2s poll covers it.
+    func pushSessionContext(_ context: SessionContext) async {
+        guard let client else { return }
+        _ = await client.setSessionContext(context)
     }
 
     func arm() async -> Bool {
@@ -329,6 +352,15 @@ actor DaemonClient {
 
     func setProfile(_ profileName: String) async -> Bool {
         await controlCall { proxy, reply in proxy.setProfile(profileName, reply: reply) }
+    }
+
+    func setAutoProfile() async -> Bool {
+        await controlCall { proxy, reply in proxy.setAutoProfile(reply: reply) }
+    }
+
+    func setSessionContext(_ context: SessionContext) async -> Bool {
+        guard let data = try? JSONEncoder().encode(context) else { return false }
+        return await controlCall { proxy, reply in proxy.setSessionContext(data, reply: reply) }
     }
 
     func arm() async -> Bool {

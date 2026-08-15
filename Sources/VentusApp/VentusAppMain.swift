@@ -473,6 +473,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let panel {
             lines.append("panel visible=\(panel.isVisible) frame=\(panel.frame)")
         }
+        if let button = statusItem?.button, let window = button.window {
+            let f = window.convertToScreen(button.convert(button.bounds, to: nil))
+            lines.append("statusItem frame=\(f)")
+        }
+        lines.append("panelShadowInset=\(VentusMetrics.panelShadowInset)")
         if let main = NSApp.windows.first(where: { $0.identifier?.rawValue == "mainWindow" }) {
             lines.append("main visible=\(main.isVisible) frame=\(main.frame)")
         }
@@ -500,19 +505,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let visible = screen.visibleFrame
         let size = panel.frame.size
-        var anchorX = visible.maxX
+        // The window carries a transparent shadow margin on every side, so all
+        // of this positions the visible CARD and converts to a window origin at
+        // the end — anchoring the window instead leaves the panel reading as
+        // floating away from the menu bar.
+        let inset = VentusMetrics.panelShadowInset
+        let cardWidth = size.width - inset * 2
+
+        var cardLeft = visible.maxX - 8 - cardWidth
         var anchorY = visible.maxY
         if let button, let buttonWindow, buttonWindow.screen != nil {
             let buttonFrame = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
-            anchorX = buttonFrame.maxX
+            // Left edges flush: the panel hangs from the icon rather than
+            // reaching back towards it.
+            cardLeft = buttonFrame.minX
             anchorY = buttonFrame.minY
         }
-        // The window now carries a transparent shadow margin, so anchor the
-        // visible card — not the window — against the status item and screen
-        // edges, or the panel reads as floating away from the menu bar.
-        let inset = VentusMetrics.panelShadowInset
-        var x = anchorX - size.width + inset
-        x = max(visible.minX + 8 - inset, min(x, visible.maxX - size.width + inset - 8))
+        // Keep the card fully on screen — a status item near the right edge
+        // would otherwise push a 330pt panel off it.
+        cardLeft = max(visible.minX + 8, min(cardLeft, visible.maxX - 8 - cardWidth))
+
+        let x = cardLeft - inset
         let y = anchorY - size.height - 6 + inset
         // This pins the WINDOW's top edge, which now sits a shadow-inset above
         // the card's top edge.

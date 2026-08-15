@@ -72,14 +72,38 @@ EOF
 
 chmod 644 "$PLIST_FILE"
 
+# Upgrades: bootstrap is a no-op when the service is already loaded, so an
+# install would copy the new binary and leave the OLD process running — with no
+# error, and a version mismatch that is invisible until something fails. Unload
+# first, then load. Exiting restores fans to Apple auto, so the gap is safe.
+if launchctl print "system/$DAEMON_NAME" >/dev/null 2>&1; then
+    echo "[Ventus Install] Existing daemon found — unloading it first..."
+    launchctl bootout "system/$DAEMON_NAME" 2>/dev/null || true
+    for _ in $(seq 1 20); do
+        launchctl print "system/$DAEMON_NAME" >/dev/null 2>&1 || break
+        sleep 0.25
+    done
+fi
+
 echo "[Ventus Install] Bootstrapping daemon with launchctl..."
 launchctl bootstrap system "$PLIST_FILE" || {
-    echo "[Ventus Install] launchctl bootstrap failed (daemon may already be running)"
+    echo "[Ventus Install] launchctl bootstrap failed"
+    exit 1
 }
 
 echo "[Ventus Install] Verifying daemon is running..."
 sleep 2
 if launchctl list | grep -q "$DAEMON_NAME"; then
+    RUNNING_PID="$(pgrep -x ventusd | head -1 || true)"
+    if [ -n "$RUNNING_PID" ]; then
+        RUNNING_ELAPSED="$(ps -o etimes= -p "$RUNNING_PID" | tr -d ' ')"
+        if [ "${RUNNING_ELAPSED:-0}" -gt 120 ]; then
+            echo "[Ventus Install] ⚠ ventusd (pid $RUNNING_PID) has been up ${RUNNING_ELAPSED}s —"
+            echo "[Ventus Install]   it did not restart, so it is still running the OLD binary."
+            echo "[Ventus Install]   Fix: sudo launchctl kickstart -k system/$DAEMON_NAME"
+            exit 1
+        fi
+    fi
     echo "[Ventus Install] ✓ Daemon installed and running"
     echo "[Ventus Install] Log file: $STARTUP_LOG"
     exit 0

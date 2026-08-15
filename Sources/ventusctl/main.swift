@@ -17,6 +17,7 @@ let EXIT_DAEMON_ERROR = 4
     func setProfile(_ profileName: String, reply: @escaping (Data) -> Void)
     func setAutoProfile(reply: @escaping (Data) -> Void)
     func setSessionContext(_ contextData: Data, reply: @escaping (Data) -> Void)
+    func setRules(_ rulesData: Data, reply: @escaping (Data) -> Void)
     func arm(reply: @escaping (Data) -> Void)
     func disarm(reply: @escaping (Data) -> Void)
     func setAppleAuto(reply: @escaping (Data) -> Void)

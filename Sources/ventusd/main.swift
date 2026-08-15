@@ -492,7 +492,7 @@ class DaemonController {
         let thermalState = getThermalState()
 
         // Evaluate active profile: manual pin if set, else the winning rule.
-        let resolution = resolveProfile(power: power, now: now, settling: true)
+        let resolution = resolveProfile(power: power, sensors: sensors, now: now, settling: true)
         let activeProfile = resolution.profileName
 
         // Run curve engine
@@ -689,6 +689,14 @@ class DaemonController {
             // reinitialize; the control loop's next tick rebuilds the handles
             // and re-issues forced targets if still armed.
             logMessage("[Power] System woke — reinitializing sensor + power readers")
+            // The uptime clock excludes sleep, so a context stamped seconds
+            // before a three-hour sleep still reads as seconds old on wake —
+            // fresh, and quite possibly wrong: apps quit, power source changed.
+            // Drop it and wait for the app to report again.
+            serialQueue.async { [weak self] in
+                self?.state.sessionContext = nil
+                self?.state.sessionContextAtUptime = nil
+            }
             state.sensorReader.reinitialize()
             state.powerReader.reinitialize()
             // Deliberately NO recordHeartbeat() here. Only the control loop may
@@ -792,6 +800,7 @@ class DaemonController {
     ///   preview would consume the dwell the real loop is waiting on.
     private func resolveProfile(
         power: PowerReader.PowerReading?,
+        sensors: [SensorGroup: GroupReading],
         now: Date,
         settling: Bool
     ) -> RuleEngine.Resolution {
@@ -805,15 +814,59 @@ class DaemonController {
             now: now
         )
         guard settling else { return state.ruleDamper.current ?? proposed }
-        return state.ruleDamper.settle(proposed, nowUptime: uptime)
+
+        // How much more (or less) cooling the proposed profile asks for right
+        // now, so an up-shift can skip the dwell.
+        var coolingDelta: Double?
+        if let applied = state.ruleDamper.current,
+           let from = state.config.profiles[applied.profileName],
+           let to = state.config.profiles[proposed.profileName],
+           let hottest = sensors.values.map(\.max).max() {
+            coolingDelta = to.peakRPM(atTemp: hottest) - from.peakRPM(atTemp: hottest)
+        }
+        return state.ruleDamper.settle(
+            proposed, nowUptime: uptime, coolingDelta: coolingDelta
+        )
     }
 
     /// Releases the manual pin so rules take over again.
     func setAutoProfileXPC() -> XPCResult {
         serialQueue.sync {
-            state.config.pinnedProfile = nil
+            // Validate the post-clear config: validate() only requires the
+            // "balanced" fallback when nothing is pinned, so clearing a pin can
+            // turn a valid config invalid.
+            var updated = state.config
+            updated.pinnedProfile = nil
+            do {
+                try updated.validate()
+            } catch {
+                logMessage("[XPC] Refusing to clear pin: \(error)")
+                return .error("\(error)")
+            }
+            state.config = updated
             saveConfig(state.config)
             logMessage("[XPC] Manual pin cleared — rules now select the profile")
+            return .ok()
+        }
+    }
+
+    /// Replaces only the rules, leaving pin/curves/armed exactly as they are.
+    func setRulesXPC(_ rulesData: Data) -> XPCResult {
+        guard let rules = try? JSONDecoder().decode(RulesConfig.self, from: rulesData) else {
+            return .error("Malformed rules")
+        }
+        return serialQueue.sync {
+            var updated = state.config
+            updated.rules = rules
+            do {
+                try updated.validate()
+            } catch {
+                logMessage("[XPC] Rules rejected: \(error)")
+                return .error("\(error)")
+            }
+            state.config = updated
+            saveConfig(updated)
+            logMessage("[XPC] Rules updated (\(rules.rules.count) rules)")
             return .ok()
         }
     }
@@ -927,7 +980,7 @@ class DaemonController {
         let thermalState = getThermalState()
 
         // Evaluate active profile: manual pin if set, else the winning rule.
-        let resolution = resolveProfile(power: power, now: now, settling: false)
+        let resolution = resolveProfile(power: power, sensors: sensors, now: now, settling: false)
         let activeProfile = resolution.profileName
 
         // Run curve engine
@@ -1141,6 +1194,17 @@ class VentusXPCServiceImpl: NSObject, VentusXPCProtocol {
         DispatchQueue.global().async { [weak self] in
             guard let self = self else { return }
             let result = self.controller.setAutoProfileXPC()
+            let encoder = JSONEncoder()
+            if let data = try? encoder.encode(result) {
+                reply(data)
+            }
+        }
+    }
+
+    func setRules(_ rulesData: Data, reply: @escaping (Data) -> Void) {
+        DispatchQueue.global().async { [weak self] in
+            guard let self = self else { return }
+            let result = self.controller.setRulesXPC(rulesData)
             let encoder = JSONEncoder()
             if let data = try? encoder.encode(result) {
                 reply(data)

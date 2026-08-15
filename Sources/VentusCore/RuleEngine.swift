@@ -95,7 +95,18 @@ public final class RuleEngine: Sendable {
             }
         }
 
-        return Resolution(profileName: "balanced", ruleLabel: nil, isPinned: false)
+        // "balanced" is the intended fallback, but Config.validate only
+        // guarantees it exists when nothing is pinned — so a config that was
+        // valid while pinned elsewhere can lose it. Naming a missing profile
+        // here would make the control loop restore-and-disarm, so fall back to
+        // any real profile, deterministically, rather than to a name.
+        if knownProfiles.contains("balanced") {
+            return Resolution(profileName: "balanced", ruleLabel: nil, isPinned: false)
+        }
+        return Resolution(
+            profileName: knownProfiles.sorted().first ?? "balanced",
+            ruleLabel: nil, isPinned: false
+        )
     }
 
     /// Evaluates rules in priority order and returns the active profile name.
@@ -119,6 +130,7 @@ public final class RuleEngine: Sendable {
 
         // First matching rule wins
         for rule in sorted {
+            guard knownProfiles.contains(rule.profileName) else { continue }
             if matches(rule.trigger, context: context, gameGPUWattsThreshold: threshold) {
                 logger("[RuleEngine] Rule matched: \(rule.profileName) (priority \(rule.priority))")
                 return rule.profileName

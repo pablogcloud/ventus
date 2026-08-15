@@ -12,10 +12,15 @@ import Foundation
 /// This is deliberately not part of `RuleEngine.resolve`, which stays pure and
 /// therefore trivially testable; the state lives here instead.
 ///
-/// Not a safety regression: holding a change for `dwellS` only delays swapping
-/// between curves. The curve engine still tracks temperature the whole time, and
-/// the 95 °C thermal override bypasses profiles entirely — so the cooling floor
-/// does not move.
+/// The dwell is asymmetric, because delaying the two directions is not equally
+/// harmless. A change to a profile asking for MORE cooling at the current
+/// temperature applies immediately; only a reduction waits. Curve hysteresis
+/// does not compensate for swapping to an entirely different curve table, so a
+/// symmetric dwell would leave a machine that just started a game sitting on the
+/// quiet curve for a full dwell period.
+///
+/// Even so the cooling floor never moves: the curve engine tracks temperature
+/// throughout, and the 95 °C thermal override bypasses profiles entirely.
 public final class RuleTransitionDamper {
     /// How long a new answer must persist before it is applied. Long enough to
     /// ride out GPU power dipping across the threshold between frames, short
@@ -36,9 +41,14 @@ public final class RuleTransitionDamper {
 
     /// Feeds a freshly computed resolution in and returns what should actually
     /// run. Call once per control tick, on the control loop's own queue.
+    /// - Parameter coolingDelta: proposed minus applied peak RPM at the current
+    ///   temperature. Positive means the change increases cooling, so it is
+    ///   applied at once. Nil when it cannot be computed, which is treated as a
+    ///   reduction — the conservative reading, since it keeps the rate limit on.
     public func settle(
         _ proposed: RuleEngine.Resolution,
-        nowUptime: TimeInterval
+        nowUptime: TimeInterval,
+        coolingDelta: Double? = nil
     ) -> RuleEngine.Resolution {
         guard let applied else {
             self.applied = proposed
@@ -58,6 +68,14 @@ public final class RuleTransitionDamper {
         // Same profile: nothing actuates, so let a changed reason through
         // immediately. Only the profile itself is rate-limited.
         if proposed.profileName == applied.profileName {
+            self.applied = proposed
+            candidate = nil
+            candidateSinceUptime = nil
+            return proposed
+        }
+
+        // More cooling is never worth delaying.
+        if let coolingDelta, coolingDelta > 0 {
             self.applied = proposed
             candidate = nil
             candidateSinceUptime = nil

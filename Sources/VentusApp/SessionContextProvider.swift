@@ -29,7 +29,16 @@ final class SessionContextProvider {
         self.observer = observer
     }
 
+    deinit {
+        // Not reached in the current lifecycle (AppDelegate owns this for the
+        // life of the process), but the IOPS run-loop source holds an unretained
+        // pointer to self — releasing without unregistering would leave the
+        // callback aimed at freed memory.
+        MainActor.assumeIsolated { stop() }
+    }
+
     func start() {
+        guard observers.isEmpty, heartbeat == nil else { return }  // not idempotent otherwise
         let workspace = NSWorkspace.shared.notificationCenter
         for name: NSNotification.Name in [
             NSWorkspace.didLaunchApplicationNotification,
@@ -49,6 +58,17 @@ final class SessionContextProvider {
                 object: nil, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.push() }
+            }
+        )
+
+        // The daemon discards its session context on wake, because its clock
+        // excludes sleep and would otherwise call three-hour-old facts fresh.
+        // Report immediately so that gap is a moment, not a heartbeat.
+        observers.append(
+            workspace.addObserver(
+                forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.push(force: true) }
             }
         )
 

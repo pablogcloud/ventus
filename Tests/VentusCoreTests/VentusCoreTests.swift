@@ -1064,6 +1064,108 @@ final class VentusCoreTests: XCTestCase {
         XCTAssertEqual(damper.settle(res("performance"), nowUptime: 13).profileName, "performance")
     }
 
+    // MARK: - Audit regressions
+
+    /// Config.validate only requires "balanced" when nothing is pinned, so a
+    /// config that was valid while pinned elsewhere can lose it. Naming a
+    /// missing profile would make the armed control loop restore-and-disarm.
+    func testResolve_FallsBackToARealProfileWhenBalancedIsGone() {
+        let engine = RuleEngine()
+        var config = Config.defaultConfig()
+        config.profiles.removeValue(forKey: "balanced")
+        config.rules.rules = []
+        config.pinnedProfile = nil
+
+        let r = engine.resolve(
+            config: config, session: nil, sessionAgeS: nil, gpuWatts: nil, now: Date()
+        )
+        XCTAssertNotEqual(r.profileName, "balanced")
+        XCTAssertNotNil(config.profiles[r.profileName], "fallback must name a profile that exists")
+    }
+
+    /// evaluateRules had no such skip, so reusing it would resurrect the bug
+    /// resolve() guards against.
+    func testEvaluateRules_SkipsRulesNamingMissingProfiles() {
+        let engine = RuleEngine()
+        var rulesConfig = RulesConfig()
+        rulesConfig.rules = [
+            Rule(priority: 100, trigger: .onBattery, profileName: "deleted"),
+            Rule(priority: 50, trigger: .onBattery, profileName: "quiet"),
+        ]
+        let active = engine.evaluateRules(
+            rulesConfig: rulesConfig,
+            context: contextAt(hour: 12, onBattery: true),
+            manualPin: nil,
+            knownProfiles: Set(["quiet", "balanced"])
+        )
+        XCTAssertEqual(active, "quiet")
+    }
+
+    /// A change that increases cooling must not wait out the dwell: the machine
+    /// has just started a game and the quiet curve is the wrong table to sit on.
+    func testDamper_MoreCoolingSkipsTheDwell() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("quiet"), nowUptime: 0)
+
+        let up = damper.settle(res("performance"), nowUptime: 1, coolingDelta: 900)
+        XCTAssertEqual(up.profileName, "performance")
+    }
+
+    /// ...and a reduction still waits, which is the whole point.
+    func testDamper_LessCoolingStillWaits() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("performance"), nowUptime: 0)
+
+        XCTAssertEqual(
+            damper.settle(res("quiet"), nowUptime: 1, coolingDelta: -900).profileName,
+            "performance"
+        )
+        XCTAssertEqual(
+            damper.settle(res("quiet"), nowUptime: 13, coolingDelta: -900).profileName,
+            "quiet"
+        )
+    }
+
+    /// An unknown direction is treated as a reduction — the conservative read,
+    /// because it keeps the rate limit on rather than assuming it is safe.
+    func testDamper_UnknownCoolingDeltaIsRateLimited() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("quiet"), nowUptime: 0)
+        XCTAssertEqual(
+            damper.settle(res("performance"), nowUptime: 1, coolingDelta: nil).profileName,
+            "quiet"
+        )
+    }
+
+    func testCurve_InterpolatesAndClampsAtTheEnds() {
+        let curve = FanCurve(
+            inputMix: [.cpuPerf: 1.0],
+            points: [
+                CurvePoint(temp: 40, rpm: 1000),
+                CurvePoint(temp: 60, rpm: 2000),
+                CurvePoint(temp: 80, rpm: 4000),
+            ]
+        )
+        XCTAssertEqual(curve.rpm(atTemp: 20), 1000)     // clamped low
+        XCTAssertEqual(curve.rpm(atTemp: 40), 1000)
+        XCTAssertEqual(curve.rpm(atTemp: 50), 1500)     // midpoint
+        XCTAssertEqual(curve.rpm(atTemp: 70), 3000)
+        XCTAssertEqual(curve.rpm(atTemp: 999), 4000)    // clamped high
+    }
+
+    /// The comparison the damper relies on: Performance must ask for more than
+    /// Quiet at a temperature where the two differ.
+    func testProfile_PeakRPMOrdersTheShippedProfiles() {
+        let config = Config.defaultConfig()
+        guard let quiet = config.profiles["quiet"],
+              let performance = config.profiles["performance"] else {
+            return XCTFail("default config should ship both profiles")
+        }
+        XCTAssertGreaterThan(
+            performance.peakRPM(atTemp: 70), quiet.peakRPM(atTemp: 70)
+        )
+    }
+
     // MARK: - Rule Engine: game threshold scaling
 
     func testGameThreshold_ScalesWithGPUCores() {

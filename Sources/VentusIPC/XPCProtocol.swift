@@ -32,6 +32,14 @@ import Foundation
     /// and stops trusting session-dependent triggers once it goes stale.
     func setSessionContext(_ contextData: Data, reply: @escaping (Data) -> Void)
 
+    /// Replaces ONLY the rules block. JSON-encoded `RulesConfig`.
+    ///
+    /// Deliberately not `setConfig`: clients hold a config snapshot fetched at
+    /// connect and never refreshed, so a whole-config write silently reverts
+    /// anything changed on the daemon since — most visibly the manual pin, which
+    /// `setProfile` and `setAutoProfile` change without the client ever seeing.
+    func setRules(_ rulesData: Data, reply: @escaping (Data) -> Void)
+
     /// Enables armed mode (hardware writes allowed).
     func arm(reply: @escaping (Data) -> Void)
 

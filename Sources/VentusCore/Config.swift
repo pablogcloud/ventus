@@ -208,6 +208,13 @@ public struct Profile: Codable, Equatable {
     /// Hysteresis dwell (seconds) to sustain below threshold before ramping down.
     public let hysteresisDwellS: Double
 
+    /// Highest RPM any fan is asked for at `tempC`. Lets two profiles be
+    /// compared for aggressiveness, so a change that increases cooling can be
+    /// applied at once while one that reduces it is rate-limited.
+    public func peakRPM(atTemp tempC: Double) -> Double {
+        curves.values.map { $0.rpm(atTemp: tempC) }.max() ?? 0
+    }
+
     /// Validates this profile.
     public func validate() throws {
         // Validate profile's own EMA and hysteresis parameters
@@ -239,6 +246,21 @@ public struct FanCurve: Codable, Equatable {
     /// Piecewise linear points: (temperature in °C, target RPM).
     /// Must be sorted by temperature and have monotonically increasing RPM.
     public let points: [CurvePoint]
+
+    /// Piecewise-linear value of this curve at `tempC`, clamped to the end
+    /// points.
+    public func rpm(atTemp tempC: Double) -> Double {
+        guard let first = points.first, let last = points.last else { return 0 }
+        if tempC <= first.temp { return first.rpm }
+        if tempC >= last.temp { return last.rpm }
+        for i in 1 ..< points.count where tempC <= points[i].temp {
+            let a = points[i - 1], b = points[i]
+            let span = b.temp - a.temp
+            guard span > 0 else { return b.rpm }
+            return a.rpm + (b.rpm - a.rpm) * ((tempC - a.temp) / span)
+        }
+        return last.rpm
+    }
 
     /// Validates this curve.
     public func validate() throws {

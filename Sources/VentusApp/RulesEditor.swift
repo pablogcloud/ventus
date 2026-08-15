@@ -15,6 +15,10 @@ struct RulesEditor: View {
     @State private var threshold: String = ""
     @State private var loadedFrom: [Rule] = []
     @State private var saveError: String?
+    /// Set while `load()` rewrites `rows`, so the resulting `onChange(of: rows)`
+    /// is not mistaken for a user edit. Without it every edit wrote twice:
+    /// load() rebuilds rows with fresh UUIDs, which reads as a change.
+    @State private var isLoading = false
 
     private var profileNames: [String] { config.profiles.keys.sorted() }
     private var chipDefault: Double { ChipInfo.current.defaultGameGPUWatts }
@@ -48,7 +52,6 @@ struct RulesEditor: View {
                         onDelete: { delete(row.id) }
                     )
                 }
-                .onChange(of: rows) { _, _ in save() }
             }
 
             if rows.contains(where: { $0.kind == .gameDetected }) {
@@ -58,6 +61,7 @@ struct RulesEditor: View {
             HStack(spacing: 10) {
                 Button {
                     rows.append(EditableRule(profileName: defaultProfile))
+                    save()
                 } label: {
                     Label("Add rule", systemImage: "plus")
                 }
@@ -73,6 +77,10 @@ struct RulesEditor: View {
         }
         .ventusCard()
         .onAppear(perform: load)
+        // On the container, not inside the non-empty branch: attached there, the
+        // modifier did not exist yet when the first rule was added, so the very
+        // first rule was never persisted.
+        .onChange(of: rows) { _, _ in save() }
         .onChange(of: config.rules.rules) { _, _ in load() }
     }
 
@@ -111,8 +119,11 @@ struct RulesEditor: View {
         let sorted = config.rules.rules.sorted { $0.priority > $1.priority }
         guard sorted != loadedFrom else { return }
         loadedFrom = sorted
+        isLoading = true
         rows = sorted.map(EditableRule.init)
         threshold = config.rules.gameGPUWattsThreshold.map { String(Int($0)) } ?? ""
+        // Clears after the rows change has propagated through onChange.
+        DispatchQueue.main.async { isLoading = false }
     }
 
     private func move(_ id: UUID, by offset: Int) {
@@ -128,25 +139,38 @@ struct RulesEditor: View {
     }
 
     private func save() {
-        var updated = config
+        guard !isLoading else { return }
+        var rules = config.rules
         // Descending, spaced, so list order alone determines who wins.
-        updated.rules.rules = rows.enumerated().map { index, row in
+        rules.rules = rows.enumerated().map { index, row in
             row.rule(priority: (rows.count - index) * 10)
         }
-        updated.rules.gameGPUWattsThreshold = Double(threshold.trimmingCharacters(in: .whitespaces))
 
+        let typed = threshold.trimmingCharacters(in: .whitespaces)
+        if typed.isEmpty {
+            rules.gameGPUWattsThreshold = nil       // deliberate: use the chip default
+        } else if let value = Double(typed) {
+            rules.gameGPUWattsThreshold = value
+        }
+        // Otherwise mid-typing ("12."): keep what is already stored rather than
+        // silently resetting a custom threshold because a row was reordered.
+
+        var probe = config
+        probe.rules = rules
         do {
-            try updated.validate()
+            try probe.validate()
         } catch {
             saveError = "\(error)"
             return
         }
 
         Task {
-            let ok = await observer.setConfig(updated)
-            if ok {
-                observer.updateConfig(updated)
-                loadedFrom = updated.rules.rules.sorted { $0.priority > $1.priority }
+            // Writes ONLY the rules. A whole-config write from here would push
+            // back this view's connect-time snapshot and silently revert the
+            // manual pin, which setProfile/setAutoProfile change daemon-side
+            // without this client ever seeing it.
+            if await observer.setRules(rules) {
+                loadedFrom = rules.rules.sorted { $0.priority > $1.priority }
                 saveError = nil
             } else {
                 saveError = "The daemon rejected this change."

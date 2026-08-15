@@ -84,6 +84,9 @@ final class DaemonState {
     var smcClient: SMCClient?
     let curveEngine: CurveEngine
     let ruleEngine: RuleEngine
+    /// Rate-limits rule-driven profile changes so a threshold-straddling rule
+    /// cannot swap curves every tick.
+    let ruleDamper = RuleTransitionDamper()
     let supervisor: SafetySupervisor
     let heartbeatWatchdog: ControlLoopWatchdog
     let cpuWatchdog: SelfCPUWatchdog
@@ -489,7 +492,7 @@ class DaemonController {
         let thermalState = getThermalState()
 
         // Evaluate active profile: manual pin if set, else the winning rule.
-        let resolution = resolveProfile(power: power, now: now)
+        let resolution = resolveProfile(power: power, now: now, settling: true)
         let activeProfile = resolution.profileName
 
         // Run curve engine
@@ -784,17 +787,25 @@ class DaemonController {
     /// Decides which profile should be running, and why. Called on
     /// `serialQueue` from both the live control step and the dry run so the two
     /// can never disagree.
-    private func resolveProfile(power: PowerReader.PowerReading?, now: Date) -> RuleEngine.Resolution {
-        let age = state.sessionContextAtUptime.map {
-            ControlLoopWatchdog.uptimeSeconds() - $0
-        }
-        return state.ruleEngine.resolve(
+    /// - Parameter settling: true only for the live control loop. The dry run
+    ///   must observe the current decision without advancing the damper, or a
+    ///   preview would consume the dwell the real loop is waiting on.
+    private func resolveProfile(
+        power: PowerReader.PowerReading?,
+        now: Date,
+        settling: Bool
+    ) -> RuleEngine.Resolution {
+        let uptime = ControlLoopWatchdog.uptimeSeconds()
+        let age = state.sessionContextAtUptime.map { uptime - $0 }
+        let proposed = state.ruleEngine.resolve(
             config: state.config,
             session: state.sessionContext,
             sessionAgeS: age,
             gpuWatts: power?.gpuW,
             now: now
         )
+        guard settling else { return state.ruleDamper.current ?? proposed }
+        return state.ruleDamper.settle(proposed, nowUptime: uptime)
     }
 
     /// Releases the manual pin so rules take over again.
@@ -916,7 +927,7 @@ class DaemonController {
         let thermalState = getThermalState()
 
         // Evaluate active profile: manual pin if set, else the winning rule.
-        let resolution = resolveProfile(power: power, now: now)
+        let resolution = resolveProfile(power: power, now: now, settling: false)
         let activeProfile = resolution.profileName
 
         // Run curve engine

@@ -979,6 +979,91 @@ final class VentusCoreTests: XCTestCase {
         XCTAssertEqual(r.profileName, "quiet")
     }
 
+    // MARK: - Rule transition damper
+
+    private func res(_ name: String, rule: String? = "r", pinned: Bool = false)
+        -> RuleEngine.Resolution
+    {
+        RuleEngine.Resolution(profileName: name, ruleLabel: rule, isPinned: pinned)
+    }
+
+    func testDamper_FirstResolutionAppliesImmediately() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        XCTAssertEqual(damper.settle(res("quiet"), nowUptime: 100).profileName, "quiet")
+        XCTAssertEqual(damper.current?.profileName, "quiet")
+    }
+
+    /// The defect this exists for: a rule sitting on its threshold flips every
+    /// tick, and each flip swaps the whole curve.
+    func testDamper_HoldsAChangeUntilItHasPersisted() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("balanced"), nowUptime: 0)
+
+        // The dwell runs from when the new answer FIRST appeared (t=1), not from
+        // the previous change, so it lands at t=13.
+        XCTAssertEqual(damper.settle(res("performance"), nowUptime: 1).profileName, "balanced")
+        XCTAssertEqual(damper.settle(res("performance"), nowUptime: 6).profileName, "balanced")
+        XCTAssertEqual(damper.settle(res("performance"), nowUptime: 12.9).profileName, "balanced")
+        XCTAssertEqual(damper.settle(res("performance"), nowUptime: 13).profileName, "performance")
+    }
+
+    /// Flapping must not accumulate toward the dwell: each time the answer
+    /// changes, the clock restarts, so noise never crosses the threshold.
+    func testDamper_FlappingNeverApplies() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("balanced"), nowUptime: 0)
+
+        var t = 1.0
+        for _ in 0 ..< 40 {
+            XCTAssertEqual(damper.settle(res("performance"), nowUptime: t).profileName, "balanced")
+            t += 1
+            XCTAssertEqual(damper.settle(res("balanced"), nowUptime: t).profileName, "balanced")
+            t += 1
+        }
+        XCTAssertEqual(damper.current?.profileName, "balanced")
+    }
+
+    /// Clicking a profile, or Auto, must take effect at once — waiting out a
+    /// dwell after a click reads as the app ignoring you.
+    func testDamper_PinAndUnpinBypassDwell() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("balanced"), nowUptime: 0)
+
+        let pinned = damper.settle(res("quiet", rule: nil, pinned: true), nowUptime: 0.1)
+        XCTAssertEqual(pinned.profileName, "quiet")
+        XCTAssertTrue(pinned.isPinned)
+
+        // Releasing to Auto is equally immediate, even though it is a
+        // rule-derived answer arriving right after.
+        let auto = damper.settle(res("performance"), nowUptime: 0.2)
+        XCTAssertEqual(auto.profileName, "performance")
+        XCTAssertFalse(auto.isPinned)
+    }
+
+    /// The reason can change without the profile changing — a different rule
+    /// winning with the same target. Nothing actuates, so it passes straight
+    /// through rather than being rate-limited.
+    func testDamper_LabelChangeOnSameProfileIsImmediate() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("quiet", rule: "On battery power"), nowUptime: 0)
+        let next = damper.settle(res("quiet", rule: "Between 22:00 and 07:00"), nowUptime: 1)
+        XCTAssertEqual(next.ruleLabel, "Between 22:00 and 07:00")
+        XCTAssertEqual(next.profileName, "quiet")
+    }
+
+    /// A dry run must be able to read the decision without consuming the dwell
+    /// the live loop is waiting on.
+    func testDamper_CurrentDoesNotAdvanceState() {
+        let damper = RuleTransitionDamper(dwellS: 12)
+        _ = damper.settle(res("balanced"), nowUptime: 0)
+        _ = damper.settle(res("performance"), nowUptime: 1)
+
+        XCTAssertEqual(damper.current?.profileName, "balanced")
+        XCTAssertEqual(damper.current?.profileName, "balanced")
+        // The pending change still lands on its original schedule.
+        XCTAssertEqual(damper.settle(res("performance"), nowUptime: 13).profileName, "performance")
+    }
+
     // MARK: - Rule Engine: game threshold scaling
 
     func testGameThreshold_ScalesWithGPUCores() {

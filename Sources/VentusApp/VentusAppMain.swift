@@ -242,15 +242,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // must not steal focus from the frontmost app. KeyablePanel overrides
         // canBecomeKey so its controls still take the first click.
         panel.makeKeyAndOrderFront(nil)
-        // The window shadow is computed from the layer's alpha. If invalidated
-        // before the Liquid Glass has finished rendering its rounded alpha, the
-        // shadow bakes in a stale/offset outline — the ghost corner. Re-invalidate
-        // across a few frames so it settles against the final glass shape.
-        for delay in [0.0, 0.05, 0.15, 0.3] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak panel] in
-                panel?.invalidateShadow()
-            }
-        }
 
         // Transient behavior: any click outside the panel closes it.
         if clickMonitor == nil {
@@ -301,7 +292,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.level = .statusBar
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        // The card casts its own shadow in SwiftUI — see PopoverView. AppKit's
+        // window shadow is cached from the backing alpha and rendered a squared
+        // outline past the rounded corners.
+        panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -325,7 +319,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     frame.origin.y = topY - frame.height
                     panel.setFrame(frame, display: true)
                 }
-                panel.invalidateShadow()
             }
         }
         self.panel = panel
@@ -514,10 +507,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             anchorX = buttonFrame.maxX
             anchorY = buttonFrame.minY
         }
-        var x = anchorX - size.width
-        x = max(visible.minX + 8, min(x, visible.maxX - size.width - 8))
-        let y = anchorY - size.height - 6
-        panelTopY = anchorY - 6
+        // The window now carries a transparent shadow margin, so anchor the
+        // visible card — not the window — against the status item and screen
+        // edges, or the panel reads as floating away from the menu bar.
+        let inset = VentusMetrics.panelShadowInset
+        var x = anchorX - size.width + inset
+        x = max(visible.minX + 8 - inset, min(x, visible.maxX - size.width + inset - 8))
+        let y = anchorY - size.height - 6 + inset
+        // This pins the WINDOW's top edge, which now sits a shadow-inset above
+        // the card's top edge.
+        panelTopY = anchorY - 6 + VentusMetrics.panelShadowInset
         panel.setFrameOrigin(NSPoint(x: x, y: y))
     }
 }

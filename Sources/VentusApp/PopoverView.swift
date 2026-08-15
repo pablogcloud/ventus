@@ -39,7 +39,15 @@ struct PopoverView: View {
         .padding(15)
         .frame(width: 330)
         .foregroundStyle(VentusPalette.ink)
-        .ventusGlass(radius: 16)
+        .ventusGlass(radius: VentusMetrics.panelCornerRadius)
+        // Drawn here rather than by the window. AppKit derives a borderless
+        // window's shadow from its backing alpha and caches it, and on macOS 26
+        // it settled on a squared-off outline that peeked past the rounded
+        // corners — the artifact this panel kept showing. A SwiftUI shadow is
+        // cast by the same shape that draws the card, so it cannot disagree
+        // with it. The padding gives it room inside the window.
+        .shadow(color: .black.opacity(0.30), radius: 11, x: 0, y: 5)
+        .padding(VentusMetrics.panelShadowInset)
         .onChange(of: observer.status?.isFanControlAvailable ?? true) { _, isAvailable in
             if !isAvailable {
                 pendingProfile = nil

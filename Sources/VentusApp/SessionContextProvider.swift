@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import IOKit.ps
 import VentusCore
@@ -20,6 +21,7 @@ final class SessionContextProvider {
     private var heartbeat: Timer?
     private var last: SessionContext?
     private var powerSourceSource: CFRunLoopSource?
+    private var cancellables = Set<AnyCancellable>()
 
     /// Well under the daemon's 30s staleness window, so two missed pushes still
     /// leave the context trusted.
@@ -38,7 +40,7 @@ final class SessionContextProvider {
     }
 
     func start() {
-        guard observers.isEmpty, heartbeat == nil else { return }  // not idempotent otherwise
+        guard observers.isEmpty, heartbeat == nil, cancellables.isEmpty else { return }
         let workspace = NSWorkspace.shared.notificationCenter
         for name: NSNotification.Name in [
             NSWorkspace.didLaunchApplicationNotification,
@@ -72,6 +74,18 @@ final class SessionContextProvider {
             }
         )
 
+        // The first push at start() lands before the XPC client has finished
+        // connecting, so it is dropped and nothing reaches the daemon until the
+        // heartbeat — leaving rules unapplied for up to 10s after launch, on top
+        // of the transition dwell. Push again the moment the link comes up.
+        observer.$isConnected
+            .removeDuplicates()
+            .filter { $0 }
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.push(force: true) }
+            }
+            .store(in: &cancellables)
+
         // Power-source changes have no NotificationCenter equivalent; IOKit
         // hands back a run-loop source instead.
         let context = Unmanaged.passUnretained(self).toOpaque()
@@ -104,6 +118,7 @@ final class SessionContextProvider {
         observers = []
         heartbeat?.invalidate()
         heartbeat = nil
+        cancellables.removeAll()
         if let source = powerSourceSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .defaultMode)
             powerSourceSource = nil

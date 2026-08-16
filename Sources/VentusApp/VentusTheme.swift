@@ -242,6 +242,13 @@ struct VentusGlassModifier: ViewModifier {
                     .regular.tint(VentusPalette.glassTint),
                     in: RoundedRectangle(cornerRadius: radius, style: .continuous)
                 )
+                // `in:` shapes the tint, but the glass MATERIAL still renders
+                // across the view's full rectangular bounds — visible as a
+                // lightened square halo around the card, and as a square
+                // silhouette for any shadow cast from it. Clipping to the same
+                // shape confines the material too, so the composed view's alpha
+                // really is the rounded card.
+                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         } else {
             content
                 .background(
@@ -262,10 +269,6 @@ enum VentusMetrics {
     /// difference shows as a square shoulder at the corners.
     static let panelCornerRadius: CGFloat = 16
 
-    /// Transparent margin the panel window keeps around its card so a SwiftUI
-    /// shadow has somewhere to fall. The window clips its own contents, so
-    /// without this the shadow would simply be cut off at the window edge.
-    static let panelShadowInset: CGFloat = 18
 }
 
 extension View {

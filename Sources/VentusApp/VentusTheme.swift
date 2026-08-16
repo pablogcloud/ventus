@@ -269,10 +269,6 @@ enum VentusMetrics {
     /// difference shows as a square shoulder at the corners.
     static let panelCornerRadius: CGFloat = 16
 
-    /// Transparent margin the panel window keeps around its card so a SwiftUI
-    /// shadow has somewhere to fall. The window clips its own contents, so
-    /// without this the shadow would simply be cut off at the window edge.
-    static let panelShadowInset: CGFloat = 18
 }
 
 extension View {

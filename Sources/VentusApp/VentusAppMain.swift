@@ -295,7 +295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The card casts its own shadow in SwiftUI — see PopoverView. AppKit's
         // window shadow is cached from the backing alpha and rendered a squared
         // outline past the rounded corners.
-        panel.hasShadow = false
+        panel.hasShadow = true
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -477,7 +477,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let f = window.convertToScreen(button.convert(button.bounds, to: nil))
             lines.append("statusItem frame=\(f)")
         }
-        lines.append("panelShadowInset=\(VentusMetrics.panelShadowInset)")
         if let main = NSApp.windows.first(where: { $0.identifier?.rawValue == "mainWindow" }) {
             lines.append("main visible=\(main.isVisible) frame=\(main.frame)")
         }
@@ -509,8 +508,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // of this positions the visible CARD and converts to a window origin at
         // the end — anchoring the window instead leaves the panel reading as
         // floating away from the menu bar.
-        let inset = VentusMetrics.panelShadowInset
-        let cardWidth = size.width - inset * 2
+        let cardWidth = size.width
 
         var cardLeft = visible.maxX - 8 - cardWidth
         var anchorY = visible.maxY
@@ -525,11 +523,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // would otherwise push a 330pt panel off it.
         cardLeft = max(visible.minX + 8, min(cardLeft, visible.maxX - 8 - cardWidth))
 
-        let x = cardLeft - inset
-        let y = anchorY - size.height - 6 + inset
+        let x = cardLeft
+        let y = anchorY - size.height - 6
         // This pins the WINDOW's top edge, which now sits a shadow-inset above
         // the card's top edge.
-        panelTopY = anchorY - 6 + VentusMetrics.panelShadowInset
+        panelTopY = anchorY - 6
         panel.setFrameOrigin(NSPoint(x: x, y: y))
     }
 }

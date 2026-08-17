@@ -53,6 +53,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Documentation renderer: draw the shipped views offscreen and exit.
+        // No status item, no daemon connection, nothing on screen.
+        let args = CommandLine.arguments
+        if let flag = args.firstIndex(of: "--render-shots"), args.count > flag + 1 {
+            NSApp.setActivationPolicy(.prohibited)
+            ShotRenderer.render(into: args[flag + 1])
+            exit(0)
+        }
+
         NSApp.setActivationPolicy(.accessory)   // menu-bar-only, no dock icon
 
         // Menu-bar app: close the main window SwiftUI auto-presents at launch.

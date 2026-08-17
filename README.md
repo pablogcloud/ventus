@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/hero.png" alt="Ventus — fan control and thermal monitoring for Apple Silicon Macs" width="100%">
+</p>
+
 # Ventus
 
 A native macOS menu-bar fan controller and thermal monitor for Apple Silicon.
@@ -18,6 +22,49 @@ mode: Ventus will never attempt hardware control there.
   worth reading.
 
 Requires **macOS 14+** on **Apple Silicon**.
+
+---
+
+## What it looks like
+
+Everything below is the running interface — rendered from the app's own views
+against sample telemetry, so the numbers are representative rather than one
+machine's afternoon.
+
+<p align="center">
+  <img src="docs/images/menu-bar.png" alt="The Ventus menu-bar panel: profile switcher, per-fan RPM, and what is currently driving the fans" width="620">
+</p>
+
+**The menu bar.** Both fan speeds, which profile is running, and what is setting
+the target — without opening anything.
+
+<p align="center">
+  <img src="docs/images/dashboard.png" alt="Dashboard: a die heat map of the detected chip, CPU and GPU gauges, package power, thermal history and fan speeds" width="820">
+</p>
+
+**The die map is built from your chip.** Core counts and GPU size come from the
+hardware, so an M4 Pro draws its own layout — and every tile is a real sensor,
+not a decoration. Blocks with no sensor (the Neural Engine, here) say so rather
+than inventing a number.
+
+<p align="center">
+  <img src="docs/images/curves.png" alt="Curve editor: a temperature-to-RPM curve with draggable points, hysteresis band, and per-sensor input mix sliders" width="820">
+</p>
+
+**Curves are editable, including the ones you did not pick.** Drag points, click
+the plot to add, double-click to remove. The shaded band is the ramp-down
+hysteresis window and the marker tracks the live workload, so you can see where
+your machine actually sits on the curve you are drawing.
+
+<p align="center">
+  <img src="docs/images/rules.png" alt="Profiles and rules: an Automatic mode showing the winning rule, four profile cards, and a reorderable rule list" width="820">
+</p>
+
+**Rules pick the profile for you.** Game detected, a time window, an app
+running, battery or AC, lid closed, external display — first match from the top
+wins. Choosing a profile by hand suspends them until you press Automatic. The
+game threshold is scaled to the detected chip, since GPU watts mean nothing
+without knowing how big the GPU is.
 
 ---
 

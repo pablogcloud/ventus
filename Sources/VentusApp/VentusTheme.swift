@@ -225,11 +225,41 @@ struct GlassBackdrop: NSViewRepresentable {
 /// layers inside a transparent panel composite as flat rectangles — the glass
 /// must be the shape itself via glassEffect(in:), and glass shapes must not
 /// nest (inner elements stay subtle materials/tints).
+/// When true, `ventusGlass` draws a static surface instead of live glass.
+///
+/// Liquid Glass samples what is behind it, and offscreen there is nothing to
+/// sample: rendered into a bitmap it composites as an opaque block over its own
+/// contents, so documentation shots come out as blank white cards. The static
+/// path keeps the shape, border and palette and drops only the live sampling —
+/// which is what the glass resolves to over a plain surface anyway.
+private struct VentusStaticSurfacesKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var ventusStaticSurfaces: Bool {
+        get { self[VentusStaticSurfacesKey.self] }
+        set { self[VentusStaticSurfacesKey.self] = newValue }
+    }
+}
+
 struct VentusGlassModifier: ViewModifier {
     var radius: CGFloat = 16
+    @Environment(\.ventusStaticSurfaces) private var staticSurfaces
 
     func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
+        if staticSurfaces {
+            content
+                .background(
+                    VentusPalette.surface,
+                    in: RoundedRectangle(cornerRadius: radius, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .strokeBorder(VentusPalette.border, lineWidth: 1)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        } else if #available(macOS 26.0, *) {
             // ONE shape only. Previously a separate tint RoundedRectangle behind
             // the glass (plus a redundant clipShape on the caller) stacked three
             // rounded shapes that didn't perfectly align — the tint rect peeked

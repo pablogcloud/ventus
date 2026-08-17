@@ -63,6 +63,15 @@ final class DaemonClientObserver: NSObject, ObservableObject {
         setupClient()
     }
 
+    /// Builds an observer that never talks to the daemon. Used by the offscreen
+    /// documentation renderer: with a live client the 2s poll would overwrite
+    /// the fixed sample telemetry mid-render and the screenshots would show
+    /// whatever this machine happened to be doing.
+    init(offline: Bool) {
+        super.init()
+        if !offline { setupClient() }
+    }
+
     private func setupClient() {
         client = DaemonClient(observer: self)
         Task {

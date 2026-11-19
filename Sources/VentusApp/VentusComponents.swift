@@ -92,23 +92,6 @@ struct VentusSegmentButton: View {
     }
 }
 
-struct VentusStatusPill: View {
-    let text: String
-    let tone: Color
-
-    var body: some View {
-        Text(text)
-            .font(VentusFont.body(11, weight: .semibold))
-            .foregroundStyle(tone)
-            .padding(.horizontal, 9)
-            .frame(height: 24)
-            .background {
-                Capsule()
-                    .fill(VentusPalette.accentTint)
-            }
-    }
-}
-
 struct VentusUnavailableState: View {
     let title: String
     let message: String

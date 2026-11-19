@@ -24,9 +24,6 @@ public final class SafetySupervisor: Sendable {
     /// informational wall-clock context.
     private var lastHeartbeatUptime: TimeInterval?
 
-    /// Last CPU usage reading.
-    private var lastCPUReading: (timestamp: Date, rusageSecs: Double)?
-
     /// FIX #9: Thread-safety lock for mutable state
     private let lock = NSLock()
 
@@ -110,28 +107,6 @@ public final class SafetySupervisor: Sendable {
     public func thermalDecision(sensors: [SensorGroup: GroupReading], thermalState: ThermalState) -> ThermalDecision {
         updateThermalOverride(sensors: sensors, thermalState: thermalState)
         return lock.withLock { thermalOverride ? .forceMax : .normal }
-    }
-
-    /// Records CPU usage (from getrusage). Detects sustained high CPU usage.
-    /// FIX #9: Thread-safe CPU reading recording
-    public func updateCPUUsage(rusageSecs: Double, now: Date) {
-        lock.withLock {
-            lastCPUReading = (now, rusageSecs)
-        }
-    }
-
-    /// Checks if daemon has sustained >5% CPU over 60s.
-    public func isSelfCPUHigh(now: Date, threshold: Double = 0.05, window: TimeInterval = 60) -> Bool {
-        return lock.withLock {
-            guard let (oldTime, oldUsage) = lastCPUReading else { return false }
-
-            let deltaS = now.timeIntervalSince(oldTime)
-            guard deltaS >= window else { return false }
-
-            // Rough estimate: if CPU usage is >5% of elapsed time, it's excessive
-            let CPUPercent = oldUsage / deltaS
-            return CPUPercent > threshold
-        }
     }
 }
 

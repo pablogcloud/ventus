@@ -194,22 +194,6 @@ public final class SMCClient: @unchecked Sendable {
 
     // MARK: - Public API
 
-    /// Reads an SMC key decoded to its natural numeric value.
-    public func readKey(_ key: String) -> Any? {
-        queue.sync {
-            guard let (info, bytes) = readBytes(key) else { return nil }
-            return decode(info, bytes)
-        }
-    }
-
-    public func writeKey(_ key: String, value: UInt8) {
-        queue.sync { checkedWrite(key, value: Double(value), allowedRange: nil) }
-    }
-
-    public func writeKey(_ key: String, value: Float) {
-        queue.sync { checkedWrite(key, value: Double(value), allowedRange: nil) }
-    }
-
     /// Number of fans (FNum), 0 if unavailable.
     public func listFanCount() -> Int {
         queue.sync {

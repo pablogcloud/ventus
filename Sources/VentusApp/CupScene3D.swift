@@ -283,10 +283,6 @@ struct Slosh {
         ripple *= exp(-dt * 2.4)
     }
 
-    var isAtRest: Bool {
-        abs(tiltX) < 0.0006 && abs(tiltZ) < 0.0006
-            && abs(vx) < 0.004 && abs(vz) < 0.004 && ripple < 0.0008
-    }
 }
 
 /// Drives every shape-valued property from a single eased `displayAmount`, so

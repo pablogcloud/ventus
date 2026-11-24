@@ -444,10 +444,6 @@ actor DaemonClient {
 
     var hasConnection: Bool { connection != nil }
 
-    func stopPolling() {
-        pollTask?.cancel()
-        pollTask = nil
-    }
 }
 
 // MARK: - Telemetry Serialization
